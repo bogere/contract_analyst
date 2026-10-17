@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from "react";
 import type { AnalysisResult, Issue, ReportSummary, ResultTab, SavedReport, SessionUser } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
+const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 const ACCEPTED = ".pdf,.docx,.txt,.md,.rtf";
 
 const tabs: { id: ResultTab; label: string }[] = [
@@ -21,10 +22,13 @@ function formatBytes(bytes: number): string {
 
 function App() {
   const inputRef = useRef<HTMLInputElement>(null);
+  const uploadPanelRef = useRef<HTMLElement>(null);
   const [user, setUser] = useState<SessionUser | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [sessionError, setSessionError] = useState("");
   const [reports, setReports] = useState<ReportSummary[]>([]);
+  const [reportsLoading, setReportsLoading] = useState(false);
+  const [activeReportId, setActiveReportId] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -61,15 +65,24 @@ function App() {
       setReports([]);
       return;
     }
+    let active = true;
+    setReportsLoading(true);
     fetch(`${API_URL}/api/reports`, { credentials: "include" })
       .then(async (response) => {
         if (!response.ok) throw new Error("Unable to load saved reports.");
-        setReports(await response.json() as ReportSummary[]);
-        setHistoryError("");
+        const nextReports = await response.json() as ReportSummary[];
+        if (active) {
+          setReports(nextReports);
+          setHistoryError("");
+        }
       })
       .catch((cause: unknown) => {
-        setHistoryError(cause instanceof Error ? cause.message : "Unable to load saved reports.");
+        if (active) setHistoryError(cause instanceof Error ? cause.message : "Unable to load saved reports.");
+      })
+      .finally(() => {
+        if (active) setReportsLoading(false);
       });
+    return () => { active = false; };
   }, [user]);
 
   function selectFile(nextFile?: File) {
@@ -85,6 +98,7 @@ function App() {
     }
     setError("");
     setResult(null);
+    setActiveReportId(null);
     setFile(nextFile);
   }
 
@@ -103,6 +117,7 @@ function App() {
     setLoading(true);
     setError("");
     setResult(null);
+    setActiveReportId(null);
     const payload = new FormData();
     payload.append("file", file);
     if (model.trim()) payload.append("model", model.trim());
@@ -121,7 +136,11 @@ function App() {
       setResultFilename(file.name);
       setActiveTab("overview");
       const reportsResponse = await fetch(`${API_URL}/api/reports`, { credentials: "include" });
-      if (reportsResponse.ok) setReports(await reportsResponse.json() as ReportSummary[]);
+      if (reportsResponse.ok) {
+        const nextReports = await reportsResponse.json() as ReportSummary[];
+        setReports(nextReports);
+        setActiveReportId(nextReports[0]?.id ?? null);
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to connect to ContractGuard.");
     } finally {
@@ -139,26 +158,67 @@ function App() {
       setResult(saved.result);
       setResultFilename(saved.filename);
       setActiveTab("overview");
+      setActiveReportId(report.id);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to open this report.");
     }
   }
 
-  async function signOut() {
+  const signOut = useCallback(async (automatic = false) => {
     try {
       const response = await fetch(`${API_URL}/api/auth/logout`, {
         method: "POST",
         credentials: "include",
       });
       if (!response.ok) throw new Error("Unable to sign out. Please try again.");
-      setUser(null);
-      setResult(null);
-      setFile(null);
-      setApiKey("");
-      setBaseUrl("");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Unable to sign out.");
+      if (!automatic) {
+        setError(cause instanceof Error ? cause.message : "Unable to sign out.");
+        return;
+      }
     }
+    setUser(null);
+    setResult(null);
+    setFile(null);
+    setApiKey("");
+    setBaseUrl("");
+    setSessionError(automatic ? "You were signed out after 15 minutes of inactivity." : "");
+  }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    let timeoutId = 0;
+    const resetTimeout = () => {
+      window.clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(() => {
+        void signOut(true);
+      }, IDLE_TIMEOUT_MS);
+    };
+    const activityEvents: Array<keyof DocumentEventMap> = [
+      "pointerdown",
+      "keydown",
+      "scroll",
+      "touchstart",
+    ];
+    activityEvents.forEach((eventName) => {
+      document.addEventListener(eventName, resetTimeout, { passive: true });
+    });
+    resetTimeout();
+    return () => {
+      window.clearTimeout(timeoutId);
+      activityEvents.forEach((eventName) => {
+        document.removeEventListener(eventName, resetTimeout);
+      });
+    };
+  }, [user, signOut]);
+
+  function startNewAnalysis() {
+    setActiveReportId(null);
+    setResult(null);
+    setResultFilename("");
+    setFile(null);
+    setError("");
+    uploadPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   if (sessionLoading) {
@@ -189,17 +249,107 @@ function App() {
       </header>
 
       <div className="workspace">
-        <section className="page-heading">
-          <div>
-            <p className="eyebrow">CONTRACT INTELLIGENCE</p>
-            <h1>Know what you’re signing.</h1>
-            <p className="intro">A clearer view of the terms, risks, and protections in your contract.</p>
-          </div>
-          <div className="secure-badge"><ShieldIcon /> Temporary file handling</div>
-        </section>
+        <div className="dashboard-layout">
+          <aside className="dashboard-sidebar" aria-label="Analysis dashboard">
+            <div className="sidebar-heading">
+              <div>
+                <p className="eyebrow">WORKSPACE</p>
+                <h2>My analyses</h2>
+              </div>
+              <span className="report-count">{reports.length}</span>
+            </div>
+            <button className="new-analysis-button" type="button" onClick={startNewAnalysis}>
+              <span aria-hidden="true">+</span> New analysis
+            </button>
+            <div className="sidebar-section-heading">
+              <span>RECENT CONTRACTS</span>
+              {reports.length > 0 && <span>{reports.length}</span>}
+            </div>
+            {historyError && <p className="error-message sidebar-error" role="alert">{historyError}</p>}
+            <div className="sidebar-report-list" aria-label="Saved contract analyses">
+              {reportsLoading ? (
+                <p className="sidebar-status"><span className="spinner sidebar-spinner" /> Loading analyses…</p>
+              ) : reports.length ? (
+                reports.map((report) => (
+                  <button
+                    className={`sidebar-report${activeReportId === report.id ? " active" : ""}`}
+                    type="button"
+                    key={report.id}
+                    onClick={() => void openReport(report)}
+                    aria-current={activeReportId === report.id ? "true" : undefined}
+                  >
+                    <span className="sidebar-report-icon"><DocumentIcon /></span>
+                    <span className="sidebar-report-copy">
+                      <strong>{report.filename}</strong>
+                      <small>{new Date(report.created_at).toLocaleDateString()} · {report.contract_type.replace(/_/g, " ")}</small>
+                    </span>
+                    <span className={`sidebar-grade${report.fairness_score < 50 ? " low" : ""}`}>{report.fairness_grade}</span>
+                  </button>
+                ))
+              ) : !historyError ? (
+                <div className="sidebar-empty">
+                  <span className="sidebar-empty-icon"><DocumentIcon /></span>
+                  <strong>No analyses yet</strong>
+                  <span>Your saved contract reviews will appear here.</span>
+                </div>
+              ) : null}
+            </div>
+            <div className="sidebar-footnote"><ShieldIcon /><span>Only you can access your saved analysis reports.</span></div>
+          </aside>
 
-        <div className="main-grid">
-          <aside className="panel upload-panel">
+          <div className="dashboard-content">
+            {activeReportId ? (
+              result && (
+                <section className="results-column selected-report" aria-live="polite">
+                  <AnalysisView
+                    result={result}
+                    activeTab={activeTab}
+                    setActiveTab={setActiveTab}
+                    filename={resultFilename || "Contract"}
+                  />
+                </section>
+              )
+            ) : (
+              <>
+                <section className="page-heading">
+                  <div>
+                    <p className="eyebrow">CONTRACT INTELLIGENCE</p>
+                    <h1>Your contract dashboard.</h1>
+                    <p className="intro">Review your saved analyses or start a new contract review.</p>
+                  </div>
+                  <div className="secure-badge"><ShieldIcon /> Temporary file handling</div>
+                </section>
+
+                <section className="dashboard-metrics" aria-label="Analysis summary">
+                  <article className="dashboard-metric">
+                    <span className="dashboard-metric-icon" aria-hidden="true">▤</span>
+                    <span><small>SAVED ANALYSES</small><strong>{reports.length}</strong></span>
+                  </article>
+                  <article className="dashboard-metric">
+                    <span className="dashboard-metric-icon score-icon" aria-hidden="true">◎</span>
+                    <span>
+                      <small>AVERAGE FAIRNESS</small>
+                      <strong>
+                        {reports.length ? (
+                          <>
+                            {Math.round(reports.reduce((total, report) => total + report.fairness_score, 0) / reports.length)}
+                            <em>/100</em>
+                          </>
+                        ) : "—"}
+                      </strong>
+                    </span>
+                  </article>
+                  <article className="dashboard-metric">
+                    <span className="dashboard-metric-icon date-icon" aria-hidden="true">◷</span>
+                    <span>
+                      <small>LAST REVIEW</small>
+                      <strong className="last-review">{reports[0] ? new Date(reports[0].created_at).toLocaleDateString() : "—"}</strong>
+                    </span>
+                  </article>
+                </section>
+
+                <div className="main-grid">
+          <aside className="panel upload-panel" ref={uploadPanelRef}>
             <div className="panel-heading">
               <div>
                 <span className="step-label">01 / DOCUMENT</span>
@@ -229,7 +379,13 @@ function App() {
                   <button
                     className="text-button"
                     type="button"
-                    onClick={(event) => { event.stopPropagation(); setFile(null); setResult(null); }}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setFile(null);
+                      setResult(null);
+                      setResultFilename("");
+                      setActiveReportId(null);
+                    }}
                   >Remove document</button>
                 </>
               ) : (
@@ -295,22 +451,6 @@ function App() {
             <button className="analyze-button" type="button" disabled={!file || loading} onClick={analyze}>
               {loading ? <><span className="spinner" /> Analyzing contract…</> : <>Analyze contract <ArrowIcon /></>}
             </button>
-            <section className="saved-reports" aria-label="Saved analyses">
-              <h3>Saved analyses</h3>
-              {historyError && <p className="error-message" role="alert">{historyError}</p>}
-              {!reports.length ? <p className="history-empty">Your completed analyses will appear here.</p> : (
-                <ul>
-                  {reports.map((report) => (
-                    <li key={report.id}>
-                      <button type="button" onClick={() => void openReport(report)}>
-                        <span><strong>{report.filename}</strong><small>{new Date(report.created_at).toLocaleDateString()} · {report.contract_type.replace(/_/g, " ")}</small></span>
-                        <span className="history-grade">{report.fairness_grade}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
             <p className="disclaimer">AI analysis is educational, not legal advice. Consult a licensed attorney for legal decisions.</p>
           </aside>
 
@@ -321,8 +461,12 @@ function App() {
               <EmptyResults loading={loading} />
             )}
           </section>
+            </div>
+              </>
+            )}
+            <footer className="footer"><span>CONTRACTGUARD AI</span><span>Understand the fine print. Make your next move with confidence.</span></footer>
+          </div>
         </div>
-        <footer className="footer"><span>CONTRACTGUARD AI</span><span>Understand the fine print. Make your next move with confidence.</span></footer>
       </div>
     </main>
   );

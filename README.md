@@ -227,8 +227,9 @@ connection string and generate an `AUTH_SECRET_KEY` with at least 32 characters
 `CONTRACTGUARD_CORS_ORIGINS` to the exact frontend origin(s).
 
 Users register with an email address and a password of at least 12 characters.
-Authentication uses a signed, HTTP-only cookie; password hashes are stored with
-Argon2. The database stores account email/password hash and each user's
+Authentication uses a signed, HTTP-only cookie with a 15-minute inactivity
+timeout; authenticated API requests extend the session while it is in use.
+Password hashes are stored with Argon2. The database stores account email/password hash and each user's
 structured analysis report and filename. Uploaded files, extracted contract
 text, and per-request LLM API keys are not stored. Reports are private to their
 owning account.

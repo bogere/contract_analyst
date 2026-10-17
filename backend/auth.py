@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.database import User, get_database_session
 
 SESSION_COOKIE = "contractguard_session"
-SESSION_DURATION = timedelta(days=7)
+SESSION_DURATION = timedelta(minutes=15)
 password_hash = PasswordHash.recommended()
 DUMMY_PASSWORD_HASH = password_hash.hash("invalid-password-for-timing-only")
 DatabaseSession: TypeAlias = Annotated[AsyncSession, Depends(get_database_session)]
@@ -75,6 +75,7 @@ def clear_session_cookie(response: Response) -> None:
 
 async def get_current_user(
     session: DatabaseSession,
+    response: Response,
     session_token: Annotated[str | None, Cookie(alias=SESSION_COOKIE)] = None,
 ) -> User:
     if not session_token:
@@ -92,6 +93,7 @@ async def get_current_user(
     user = await session.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=401, detail="Your account no longer exists.")
+    set_session_cookie(response, user.id)
     return user
 
 

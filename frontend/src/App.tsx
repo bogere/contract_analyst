@@ -1,5 +1,5 @@
-import { useRef, useState, type ChangeEvent, type DragEvent } from "react";
-import type { AnalysisResult, Issue, ResultTab } from "./types";
+import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from "react";
+import type { AnalysisResult, Issue, ReportSummary, ResultTab, SavedReport, SessionUser } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
@@ -21,6 +21,11 @@ function formatBytes(bytes: number): string {
 
 function App() {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [user, setUser] = useState<SessionUser | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
+  const [sessionError, setSessionError] = useState("");
+  const [reports, setReports] = useState<ReportSummary[]>([]);
+  const [historyError, setHistoryError] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const [model, setModel] = useState("");
@@ -29,9 +34,43 @@ function App() {
   const [language, setLanguage] = useState("en");
   const [jurisdiction, setJurisdiction] = useState("auto");
   const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [resultFilename, setResultFilename] = useState("");
   const [activeTab, setActiveTab] = useState<ResultTab>("overview");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    fetch(`${API_URL}/api/auth/me`, { credentials: "include" })
+      .then(async (response) => {
+        if (!active) return;
+        if (response.ok) setUser(await response.json() as SessionUser);
+        else if (response.status !== 401) setSessionError("Unable to connect to the account service.");
+      })
+      .catch(() => {
+        if (active) setSessionError("Unable to connect to the account service.");
+      })
+      .finally(() => {
+        if (active) setSessionLoading(false);
+      });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setReports([]);
+      return;
+    }
+    fetch(`${API_URL}/api/reports`, { credentials: "include" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Unable to load saved reports.");
+        setReports(await response.json() as ReportSummary[]);
+        setHistoryError("");
+      })
+      .catch((cause: unknown) => {
+        setHistoryError(cause instanceof Error ? cause.message : "Unable to load saved reports.");
+      });
+  }, [user]);
 
   function selectFile(nextFile?: File) {
     if (!nextFile) return;
@@ -73,18 +112,66 @@ function App() {
     payload.append("jurisdiction", jurisdiction);
 
     try {
-      const response = await fetch(`${API_URL}/api/analyze`, { method: "POST", body: payload });
+      const response = await fetch(`${API_URL}/api/analyze`, { method: "POST", body: payload, credentials: "include" });
       const body = await response.json();
       if (!response.ok) {
         throw new Error(body.detail || "The contract could not be analyzed.");
       }
       setResult(body as AnalysisResult);
+      setResultFilename(file.name);
       setActiveTab("overview");
+      const reportsResponse = await fetch(`${API_URL}/api/reports`, { credentials: "include" });
+      if (reportsResponse.ok) setReports(await reportsResponse.json() as ReportSummary[]);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to connect to ContractGuard.");
     } finally {
       setLoading(false);
     }
+  }
+
+  async function openReport(report: ReportSummary) {
+    setError("");
+    try {
+      const response = await fetch(`${API_URL}/api/reports/${report.id}`, { credentials: "include" });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.detail || "Unable to open this report.");
+      const saved = body as SavedReport;
+      setResult(saved.result);
+      setResultFilename(saved.filename);
+      setActiveTab("overview");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to open this report.");
+    }
+  }
+
+  async function signOut() {
+    try {
+      const response = await fetch(`${API_URL}/api/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error("Unable to sign out. Please try again.");
+      setUser(null);
+      setResult(null);
+      setFile(null);
+      setApiKey("");
+      setBaseUrl("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to sign out.");
+    }
+  }
+
+  if (sessionLoading) {
+    return <main className="auth-shell"><span className="spinner auth-spinner" /></main>;
+  }
+  if (!user) {
+    return <AuthScreen
+      initialError={sessionError}
+      onAuthenticated={(authenticatedUser) => {
+        setSessionError("");
+        setUser(authenticatedUser);
+      }}
+    />;
   }
 
   return (
@@ -95,8 +182,9 @@ function App() {
           <span>contract<span className="brand-light">guard</span></span>
         </a>
         <div className="topbar-right">
-          <span className="privacy-note"><span className="privacy-dot" /> Not stored after review</span>
-          <span className="avatar">CG</span>
+          <span className="privacy-note"><span className="privacy-dot" /> Reports saved to your account</span>
+          <span className="account-email">{user.email}</span>
+          <button className="signout-button" type="button" onClick={() => void signOut()}>Sign out</button>
         </div>
       </header>
 
@@ -207,12 +295,28 @@ function App() {
             <button className="analyze-button" type="button" disabled={!file || loading} onClick={analyze}>
               {loading ? <><span className="spinner" /> Analyzing contract…</> : <>Analyze contract <ArrowIcon /></>}
             </button>
+            <section className="saved-reports" aria-label="Saved analyses">
+              <h3>Saved analyses</h3>
+              {historyError && <p className="error-message" role="alert">{historyError}</p>}
+              {!reports.length ? <p className="history-empty">Your completed analyses will appear here.</p> : (
+                <ul>
+                  {reports.map((report) => (
+                    <li key={report.id}>
+                      <button type="button" onClick={() => void openReport(report)}>
+                        <span><strong>{report.filename}</strong><small>{new Date(report.created_at).toLocaleDateString()} · {report.contract_type.replace(/_/g, " ")}</small></span>
+                        <span className="history-grade">{report.fairness_grade}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
             <p className="disclaimer">AI analysis is educational, not legal advice. Consult a licensed attorney for legal decisions.</p>
           </aside>
 
           <section className="results-column" aria-live="polite">
             {result ? (
-              <AnalysisView result={result} activeTab={activeTab} setActiveTab={setActiveTab} filename={file?.name || "Contract"} />
+              <AnalysisView result={result} activeTab={activeTab} setActiveTab={setActiveTab} filename={resultFilename || file?.name || "Contract"} />
             ) : (
               <EmptyResults loading={loading} />
             )}
@@ -220,6 +324,92 @@ function App() {
         </div>
         <footer className="footer"><span>CONTRACTGUARD AI</span><span>Understand the fine print. Make your next move with confidence.</span></footer>
       </div>
+    </main>
+  );
+}
+
+function AuthScreen({ initialError, onAuthenticated }: {
+  initialError: string;
+  onAuthenticated: (user: SessionUser) => void;
+}) {
+  const [mode, setMode] = useState<"login" | "register">("login");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState(initialError);
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`${API_URL}/api/auth/${mode}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ email, password }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.detail || "Unable to sign in.");
+      setPassword("");
+      onAuthenticated(body as SessionUser);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to connect to the account service.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="auth-shell">
+      <section className="auth-card">
+        <a className="brand auth-brand" href="/" aria-label="ContractGuard home">
+          <span className="brand-mark">C</span>
+          <span>contract<span className="brand-light">guard</span></span>
+        </a>
+        <p className="eyebrow">PRIVATE CONTRACT REVIEW</p>
+        <h1>{mode === "login" ? "Welcome back." : "Create your account."}</h1>
+        <p className="auth-intro">Sign in to review contracts and keep your analysis reports together.</p>
+        <form onSubmit={(event) => void submit(event)}>
+          <label className="field-label" htmlFor="auth-email">Email</label>
+          <input
+            className="text-input"
+            id="auth-email"
+            type="email"
+            autoComplete="email"
+            required
+            maxLength={320}
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+          />
+          <label className="field-label" htmlFor="auth-password">Password</label>
+          <input
+            className="text-input"
+            id="auth-password"
+            type="password"
+            autoComplete={mode === "login" ? "current-password" : "new-password"}
+            required
+            minLength={12}
+            maxLength={128}
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+          {error && <div className="error-message" role="alert">{error}</div>}
+          <button className="analyze-button auth-submit" type="submit" disabled={busy}>
+            {busy ? <><span className="spinner" /> Please wait…</> : mode === "login" ? "Sign in" : "Create account"}
+          </button>
+        </form>
+        <p className="auth-switch">
+          {mode === "login" ? "New to ContractGuard?" : "Already have an account?"}{" "}
+          <button type="button" onClick={() => {
+            setMode(mode === "login" ? "register" : "login");
+            setError("");
+          }}>
+            {mode === "login" ? "Create account" : "Sign in"}
+          </button>
+        </p>
+        <p className="auth-privacy">Uploaded contracts and extracted text are deleted after analysis. Only your account and analysis report are saved.</p>
+      </section>
     </main>
   );
 }

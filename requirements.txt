@@ -2,6 +2,11 @@ contractguardian
 python-dotenv
 fastapi
 openai
+asyncpg
+email-validator
+PyJWT
+pwdlib[argon2]
+SQLAlchemy[asyncio]
 python-multipart
 starlette
 uvicorn[standard]

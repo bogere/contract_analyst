@@ -219,6 +219,20 @@ IDs such as `anthropic/claude-sonnet-4` should only be used with providers that
 offer that model (for example, OpenRouter). The UI's model field is optional and
 overrides the server setting only when filled in.
 
+The web app requires PostgreSQL. Set `DATABASE_URL` to your PostgreSQL
+connection string and generate an `AUTH_SECRET_KEY` with at least 32 characters
+(for example, `openssl rand -hex 32`). On first startup the API creates the
+`users` and `analysis_reports` tables. For HTTPS deployments, set
+`SESSION_COOKIE_SECURE=true` and configure
+`CONTRACTGUARD_CORS_ORIGINS` to the exact frontend origin(s).
+
+Users register with an email address and a password of at least 12 characters.
+Authentication uses a signed, HTTP-only cookie; password hashes are stored with
+Argon2. The database stores account email/password hash and each user's
+structured analysis report and filename. Uploaded files, extracted contract
+text, and per-request LLM API keys are not stored. Reports are private to their
+owning account.
+
 Start the backend from the project root:
 
 ```bash

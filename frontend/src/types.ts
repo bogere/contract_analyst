@@ -37,4 +37,25 @@ export type AnalysisResult = {
   fairness_grade: string;
 };
 
+export type SessionUser = {
+  id: string;
+  email: string;
+};
+
+export type ReportSummary = {
+  id: string;
+  filename: string;
+  contract_type: string;
+  fairness_score: number;
+  fairness_grade: string;
+  created_at: string;
+};
+
+export type SavedReport = {
+  id: string;
+  filename: string;
+  result: AnalysisResult;
+  created_at: string;
+};
+
 export type ResultTab = "overview" | "red-flags" | "warnings" | "protections" | "statutes";

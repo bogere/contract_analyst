@@ -25,6 +25,9 @@ button { cursor: pointer; }
 .brand-mark { height: 29px; width: 29px; display: grid; place-items: center; color: white; background: var(--green); border-radius: 8px; font-size: 17px; }
 .brand-light { color: #6e887c; font-weight: 500; }
 .topbar-right { display: flex; align-items: center; gap: 20px; }
+.account-email { max-width: 220px; overflow: hidden; color: #59675e; font-size: 11px; text-overflow: ellipsis; }
+.signout-button { padding: 7px 10px; border: 1px solid #e2e8e2; border-radius: 6px; color: #51665a; background: white; font-size: 10px; }
+.signout-button:hover { border-color: #9fb7a7; background: #f8fbf8; }
 .privacy-note { display: flex; gap: 8px; align-items: center; color: #65746c; font-size: 12px; }
 .privacy-dot, .complete-badge span { width: 7px; height: 7px; border-radius: 50%; background: #54a278; box-shadow: 0 0 0 3px #e6f3e9; }
 .avatar { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: #e9eee9; color: var(--green); font-size: 10px; font-weight: 700; }
@@ -54,6 +57,16 @@ h1 { margin-bottom: 8px; font-size: clamp(27px, 3vw, 35px); letter-spacing: -1.5
 .dropzone small { margin-top: 11px; color: #a1a8a2; font-size: 9px; }
 .browse-link { color: var(--green); font-weight: 600; }
 .text-button { margin-top: 7px; border: 0; padding: 2px 5px; color: #7b655f; background: none; font-size: 10px; }
+.saved-reports { margin-top: 20px; padding-top: 16px; border-top: 1px solid #edf0ec; }
+.saved-reports h3 { margin: 0 0 9px; font-size: 12px; }
+.saved-reports ul { display: grid; gap: 5px; max-height: 230px; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
+.saved-reports li button { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 8px; padding: 8px; border: 1px solid #edf0ec; border-radius: 6px; color: #56635a; background: #fcfdfa; text-align: left; }
+.saved-reports li button:hover { border-color: #b8cdbd; background: #f7faf7; }
+.saved-reports li strong, .saved-reports li small { display: block; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.saved-reports li strong { font-size: 10px; font-weight: 600; }
+.saved-reports li small { margin-top: 4px; color: #929a94; font-size: 8px; }
+.history-grade { color: var(--green); font-size: 12px; font-weight: 700; }
+.history-empty { margin: 0; color: #939b95; font-size: 10px; line-height: 1.6; }
 .settings-heading { margin: 24px 0 16px; }
 .field-label { display: block; margin: 0 0 7px; color: #59645d; font-size: 11px; font-weight: 600; }
 .optional { margin-left: 4px; color: #a1a8a3; font-size: 10px; font-weight: 400; }
@@ -163,6 +176,18 @@ select.text-input { cursor: pointer; }
 .legal-disclaimer svg { width: 13px; color: #7d9887; }
 .footer { display: flex; justify-content: space-between; padding: 23px 3px 0; color: #a2a9a3; font-size: 9px; }
 .footer span:first-child { font: 700 8px Manrope, sans-serif; letter-spacing: 1px; }
+.auth-shell { min-height: 100vh; display: grid; place-items: center; padding: 24px; background: radial-gradient(ellipse at 50% 35%, #fff 0, #f5f6f2 75%); }
+.auth-card { width: min(100%, 420px); padding: 34px; border: 1px solid #e9ebe7; border-radius: 12px; background: white; box-shadow: 0 10px 40px rgba(35, 56, 44, .06); }
+.auth-brand { margin-bottom: 34px; }
+.auth-card .eyebrow { margin-bottom: 7px; }
+.auth-card h1 { margin-bottom: 8px; font-size: 28px; }
+.auth-intro { margin-bottom: 23px; color: #7a817c; font-size: 12px; line-height: 1.7; }
+.auth-card .text-input { height: 43px; font-size: 13px; }
+.auth-submit { height: 45px; margin-top: 3px; }
+.auth-switch { margin: 18px 0 0; color: #778078; font-size: 11px; text-align: center; }
+.auth-switch button { border: 0; padding: 0; color: var(--green); background: none; font-size: inherit; font-weight: 700; }
+.auth-privacy { margin: 22px 0 0; padding-top: 15px; border-top: 1px solid #edf0ec; color: #8c958e; font-size: 10px; line-height: 1.6; }
+.auth-spinner { border-color: #d8e5dc; border-top-color: var(--green); }
 
 @media (max-width: 940px) {
   .workspace { padding: 34px 25px 20px; }
@@ -187,6 +212,9 @@ select.text-input { cursor: pointer; }
   .intro { max-width: 310px; font-size: 12px; line-height: 1.6; }
   .topbar-right { gap: 11px; }
   .privacy-note { font-size: 10px; }
+  .account-email { max-width: 115px; font-size: 9px; }
+  .signout-button { padding: 6px 7px; font-size: 9px; }
+  .auth-card { padding: 26px 21px; }
   .score-overview { align-items: flex-start; padding: 19px 16px 15px; }
   .score-copy h2 { font-size: 19px; }
   .score-card { min-width: auto; gap: 7px; padding: 8px; }

@@ -1,0 +1,7 @@
+contractguardian
+python-dotenv
+fastapi
+openai
+python-multipart
+starlette
+uvicorn[standard]

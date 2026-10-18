@@ -6,9 +6,10 @@ import os
 import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime
+from typing import Literal
 
 from fastapi import HTTPException
-from sqlalchemy import DateTime, ForeignKey, String, func
+from sqlalchemy import DateTime, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import (
@@ -50,6 +51,22 @@ class AnalysisReport(Base):
     result: Mapped[dict[str, object]] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     user: Mapped[User] = relationship(back_populates="reports")
+
+
+class WorkspaceSettings(Base):
+    __tablename__ = "workspace_settings"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default="global")
+    model: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    base_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    encrypted_api_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    language: Mapped[Literal["en", "zh"]] = mapped_column(String(8), default="en")
+    jurisdiction: Mapped[Literal["auto", "cn", "us-ca"]] = mapped_column(String(16), default="auto")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
 
 _engine = None

@@ -40,6 +40,21 @@ export type AnalysisResult = {
 export type SessionUser = {
   id: string;
   email: string;
+  is_admin: boolean;
+};
+
+export type AdminUserSummary = SessionUser & {
+  created_at: string;
+};
+
+export type AdminSettings = {
+  model: string | null;
+  effective_model: string;
+  base_url: string | null;
+  has_saved_api_key: boolean;
+  has_environment_api_key: boolean;
+  language: "en" | "zh";
+  jurisdiction: "auto" | "cn" | "us-ca";
 };
 
 export type ReportSummary = {

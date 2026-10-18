@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from "react";
-import type { AnalysisResult, Issue, ReportSummary, ResultTab, SavedReport, SessionUser } from "./types";
+import type { AdminSettings, AdminUserSummary, AnalysisResult, Issue, ReportSummary, ResultTab, SavedReport, SessionUser } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
@@ -29,6 +29,7 @@ function App() {
   const [reports, setReports] = useState<ReportSummary[]>([]);
   const [reportsLoading, setReportsLoading] = useState(false);
   const [activeReportId, setActiveReportId] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<"dashboard" | "settings" | "users">("dashboard");
   const [historyError, setHistoryError] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -42,6 +43,20 @@ function App() {
   const [activeTab, setActiveTab] = useState<ResultTab>("overview");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [adminSettingsLoading, setAdminSettingsLoading] = useState(false);
+  const [adminSettingsSaving, setAdminSettingsSaving] = useState(false);
+  const [adminSettingsError, setAdminSettingsError] = useState("");
+  const [adminSettingsSaved, setAdminSettingsSaved] = useState("");
+  const [adminHasSavedApiKey, setAdminHasSavedApiKey] = useState(false);
+  const [adminHasEnvironmentApiKey, setAdminHasEnvironmentApiKey] = useState(false);
+  const [adminEffectiveModel, setAdminEffectiveModel] = useState("");
+  const [clearAdminApiKey, setClearAdminApiKey] = useState(false);
+  const [adminUsers, setAdminUsers] = useState<AdminUserSummary[]>([]);
+  const [adminUsersLoading, setAdminUsersLoading] = useState(false);
+  const [adminUsersError, setAdminUsersError] = useState("");
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserPassword, setNewUserPassword] = useState("");
+  const [creatingUser, setCreatingUser] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -85,6 +100,54 @@ function App() {
     return () => { active = false; };
   }, [user]);
 
+  useEffect(() => {
+    if (!user?.is_admin) {
+      setAdminUsers([]);
+      return;
+    }
+    let active = true;
+    setAdminSettingsLoading(true);
+    setAdminUsersLoading(true);
+    Promise.all([
+      fetch(`${API_URL}/api/admin/settings`, { credentials: "include" }).then(async (response) => {
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.detail || "Unable to load workspace settings.");
+        return body as AdminSettings;
+      }),
+      fetch(`${API_URL}/api/admin/users`, { credentials: "include" }).then(async (response) => {
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.detail || "Unable to load workspace users.");
+        return body as AdminUserSummary[];
+      }),
+    ])
+      .then(([settings, users]) => {
+        if (!active) return;
+        setModel(settings.model ?? "");
+        setBaseUrl(settings.base_url ?? "");
+        setLanguage(settings.language);
+        setJurisdiction(settings.jurisdiction);
+        setAdminHasSavedApiKey(settings.has_saved_api_key);
+        setAdminHasEnvironmentApiKey(settings.has_environment_api_key);
+        setAdminEffectiveModel(settings.effective_model);
+        setAdminUsers(users);
+        setAdminSettingsError("");
+        setAdminUsersError("");
+      })
+      .catch((cause: unknown) => {
+        if (!active) return;
+        const message = cause instanceof Error ? cause.message : "Unable to load administrator workspace.";
+        setAdminSettingsError(message);
+        setAdminUsersError(message);
+      })
+      .finally(() => {
+        if (active) {
+          setAdminSettingsLoading(false);
+          setAdminUsersLoading(false);
+        }
+      });
+    return () => { active = false; };
+  }, [user]);
+
   function selectFile(nextFile?: File) {
     if (!nextFile) return;
     const extension = nextFile.name.split(".").pop()?.toLowerCase();
@@ -120,11 +183,6 @@ function App() {
     setActiveReportId(null);
     const payload = new FormData();
     payload.append("file", file);
-    if (model.trim()) payload.append("model", model.trim());
-    payload.append("api_key", apiKey);
-    payload.append("base_url", baseUrl);
-    payload.append("lang", language);
-    payload.append("jurisdiction", jurisdiction);
 
     try {
       const response = await fetch(`${API_URL}/api/analyze`, { method: "POST", body: payload, credentials: "include" });
@@ -159,8 +217,69 @@ function App() {
       setResultFilename(saved.filename);
       setActiveTab("overview");
       setActiveReportId(report.id);
+      setActiveView("dashboard");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to open this report.");
+    }
+  }
+
+  async function saveAdminSettings() {
+    setAdminSettingsSaving(true);
+    setAdminSettingsError("");
+    setAdminSettingsSaved("");
+    try {
+      const response = await fetch(`${API_URL}/api/admin/settings`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          model: model.trim() || null,
+          base_url: baseUrl.trim() || null,
+          api_key: apiKey.trim() || null,
+          clear_api_key: clearAdminApiKey,
+          language,
+          jurisdiction,
+        }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.detail || "Unable to save workspace settings.");
+      const settings = body as AdminSettings;
+      setModel(settings.model ?? "");
+      setBaseUrl(settings.base_url ?? "");
+      setAdminHasSavedApiKey(settings.has_saved_api_key);
+      setAdminHasEnvironmentApiKey(settings.has_environment_api_key);
+      setAdminEffectiveModel(settings.effective_model);
+      setApiKey("");
+      setClearAdminApiKey(false);
+      setAdminSettingsSaved("Workspace analysis settings saved.");
+    } catch (cause) {
+      setAdminSettingsError(cause instanceof Error ? cause.message : "Unable to save workspace settings.");
+    } finally {
+      setAdminSettingsSaving(false);
+    }
+  }
+
+  async function createWorkspaceUser(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setCreatingUser(true);
+    setAdminUsersError("");
+    try {
+      const response = await fetch(`${API_URL}/api/admin/users`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ email: newUserEmail, password: newUserPassword }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.detail || "Unable to create user.");
+      const createdUser = body as AdminUserSummary;
+      setAdminUsers((current) => [createdUser, ...current.filter((item) => item.id !== createdUser.id)]);
+      setNewUserEmail("");
+      setNewUserPassword("");
+    } catch (cause) {
+      setAdminUsersError(cause instanceof Error ? cause.message : "Unable to create user.");
+    } finally {
+      setCreatingUser(false);
     }
   }
 
@@ -182,6 +301,9 @@ function App() {
     setFile(null);
     setApiKey("");
     setBaseUrl("");
+    setClearAdminApiKey(false);
+    setAdminSettingsSaved("");
+    setAdminUsers([]);
     setSessionError(automatic ? "You were signed out after 15 minutes of inactivity." : "");
   }, []);
 
@@ -213,6 +335,7 @@ function App() {
   }, [user, signOut]);
 
   function startNewAnalysis() {
+    setActiveView("dashboard");
     setActiveReportId(null);
     setResult(null);
     setResultFilename("");
@@ -261,6 +384,27 @@ function App() {
             <button className="new-analysis-button" type="button" onClick={startNewAnalysis}>
               <span aria-hidden="true">+</span> New analysis
             </button>
+            {user.is_admin && (
+              <>
+                <div className="sidebar-section-heading admin-sidebar-heading"><span>ADMIN WORKSPACE</span></div>
+                <button
+                  className={`sidebar-nav-button${activeView === "users" ? " active" : ""}`}
+                  type="button"
+                  onClick={() => setActiveView("users")}
+                  aria-current={activeView === "users" ? "page" : undefined}
+                >
+                  <UsersIcon /> Manage users
+                </button>
+                <button
+                  className={`sidebar-nav-button${activeView === "settings" ? " active" : ""}`}
+                  type="button"
+                  onClick={() => setActiveView("settings")}
+                  aria-current={activeView === "settings" ? "page" : undefined}
+                >
+                  <SettingsIcon /> AI settings
+                </button>
+              </>
+            )}
             <div className="sidebar-section-heading">
               <span>RECENT CONTRACTS</span>
               {reports.length > 0 && <span>{reports.length}</span>}
@@ -298,7 +442,172 @@ function App() {
           </aside>
 
           <div className="dashboard-content">
-            {activeReportId ? (
+            {activeView === "users" && user.is_admin ? (
+              <section className="admin-page">
+                <div className="page-heading">
+                  <div>
+                    <p className="eyebrow">ADMIN WORKSPACE</p>
+                    <h1>Manage users</h1>
+                    <p className="intro">Create accounts for people who need access to contract analysis.</p>
+                  </div>
+                </div>
+                <div className="panel admin-panel">
+                  <div className="settings-panel-heading">
+                    <span className="settings-panel-icon"><UsersIcon /></span>
+                    <div>
+                      <h2>Add a workspace user</h2>
+                      <p>New users can sign in with the email and password you provide.</p>
+                    </div>
+                  </div>
+                  <form className="admin-user-form" onSubmit={(event) => void createWorkspaceUser(event)}>
+                    <div>
+                      <label className="field-label" htmlFor="new-user-email">Email</label>
+                      <input
+                        id="new-user-email"
+                        className="text-input"
+                        type="email"
+                        autoComplete="email"
+                        required
+                        maxLength={320}
+                        value={newUserEmail}
+                        onChange={(event) => setNewUserEmail(event.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="field-label" htmlFor="new-user-password">Temporary password</label>
+                      <input
+                        id="new-user-password"
+                        className="text-input"
+                        type="password"
+                        autoComplete="new-password"
+                        required
+                        minLength={12}
+                        maxLength={128}
+                        value={newUserPassword}
+                        onChange={(event) => setNewUserPassword(event.target.value)}
+                      />
+                    </div>
+                    {adminUsersError && <div className="error-message" role="alert">{adminUsersError}</div>}
+                    <button className="analyze-button" type="submit" disabled={creatingUser}>
+                      {creatingUser ? <><span className="spinner" /> Creating user…</> : "Create user"}
+                    </button>
+                  </form>
+                </div>
+                <div className="panel users-panel">
+                  <div className="users-panel-heading">
+                    <div><h2>Workspace users</h2><p>{adminUsers.length} account{adminUsers.length === 1 ? "" : "s"}</p></div>
+                  </div>
+                  {adminUsersLoading ? <p className="admin-empty">Loading users…</p> : adminUsers.length ? (
+                    <ul className="admin-user-list">
+                      {adminUsers.map((workspaceUser) => (
+                        <li key={workspaceUser.id}>
+                          <span className="admin-user-avatar">{workspaceUser.email.slice(0, 1).toUpperCase()}</span>
+                          <span className="admin-user-info"><strong>{workspaceUser.email}</strong><small>Added {new Date(workspaceUser.created_at).toLocaleDateString()}</small></span>
+                          {workspaceUser.is_admin && <span className="admin-role-badge">Admin</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : <p className="admin-empty">No user accounts found.</p>}
+                </div>
+              </section>
+            ) : activeView === "settings" && user.is_admin ? (
+              <section className="settings-page">
+                <div className="page-heading">
+                  <div>
+                    <p className="eyebrow">ADMIN WORKSPACE</p>
+                    <h1>AI analysis settings</h1>
+                    <p className="intro">Configure shared provider settings for everyone in this workspace.</p>
+                  </div>
+                </div>
+                <div className="panel settings-panel">
+                  <div className="settings-panel-heading">
+                    <span className="settings-panel-icon"><SettingsIcon /></span>
+                    <div>
+                      <h2>Shared AI configuration</h2>
+                      <p>These settings are used for analyses across all user accounts.</p>
+                    </div>
+                  </div>
+                  {adminSettingsLoading ? <p className="admin-empty">Loading current settings…</p> : (
+                    <>
+                      {adminSettingsError && <div className="error-message" role="alert">{adminSettingsError}</div>}
+                      <label className="field-label" htmlFor="model">AI model override <span className="optional">Optional</span></label>
+                      <input
+                        id="model"
+                        className="text-input"
+                        value={model}
+                        onChange={(event) => { setModel(event.target.value); setAdminSettingsSaved(""); }}
+                        placeholder={`Uses .env default (${adminEffectiveModel || "gpt-4o-mini"})`}
+                      />
+                      <label className="field-label" htmlFor="base-url">OpenAI-compatible API URL <span className="optional">Optional</span></label>
+                      <input
+                        id="base-url"
+                        className="text-input"
+                        type="url"
+                        autoComplete="url"
+                        placeholder="Uses OPENAI_BASE_URL from .env"
+                        value={baseUrl}
+                        onChange={(event) => { setBaseUrl(event.target.value); setAdminSettingsSaved(""); }}
+                      />
+                      <label className="field-label" htmlFor="api-key">Provider API key <span className="optional">Optional</span></label>
+                      <input
+                        id="api-key"
+                        className="text-input"
+                        type="password"
+                        autoComplete="new-password"
+                        placeholder={adminHasSavedApiKey ? "Saved key configured; leave blank to keep it" : "Uses OPENAI_API_KEY / OPENROUTER_API_KEY from .env"}
+                        value={apiKey}
+                        onChange={(event) => {
+                          setApiKey(event.target.value);
+                          if (event.target.value) setClearAdminApiKey(false);
+                          setAdminSettingsSaved("");
+                        }}
+                      />
+                      <p className="settings-help">
+                        {adminHasSavedApiKey
+                          ? "A saved workspace key will be used for all users. Enter a replacement or choose clear to fall back to .env."
+                          : adminHasEnvironmentApiKey
+                            ? "No database key is saved. The provider key configured in .env will be used."
+                            : "No provider key is configured. Add a key here or set one in .env."}
+                      </p>
+                      {adminHasSavedApiKey && (
+                        <label className="clear-key-option">
+                          <input
+                            type="checkbox"
+                            checked={clearAdminApiKey}
+                            onChange={(event) => {
+                              setClearAdminApiKey(event.target.checked);
+                              if (event.target.checked) setApiKey("");
+                            }}
+                          />
+                          Clear saved key and use .env instead
+                        </label>
+                      )}
+                      <div className="field-row">
+                        <div>
+                          <label className="field-label" htmlFor="language">Report language</label>
+                          <select id="language" className="text-input" value={language} onChange={(event) => { setLanguage(event.target.value as "en" | "zh"); setAdminSettingsSaved(""); }}>
+                            <option value="en">English</option>
+                            <option value="zh">中文</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="field-label" htmlFor="jurisdiction">Legal jurisdiction</label>
+                          <select id="jurisdiction" className="text-input" value={jurisdiction} onChange={(event) => { setJurisdiction(event.target.value as "auto" | "cn" | "us-ca"); setAdminSettingsSaved(""); }}>
+                            <option value="auto">Auto-detect</option>
+                            <option value="cn">China</option>
+                            <option value="us-ca">California, US</option>
+                          </select>
+                        </div>
+                      </div>
+                      {adminSettingsSaved && <p className="success-message" role="status">{adminSettingsSaved}</p>}
+                      <button className="analyze-button settings-done-button" type="button" onClick={() => void saveAdminSettings()} disabled={adminSettingsSaving}>
+                        {adminSettingsSaving ? <><span className="spinner" /> Saving settings…</> : "Save shared settings"}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </section>
+            ) : activeReportId ? (
               result && (
                 <section className="results-column selected-report" aria-live="polite">
                   <AnalysisView
@@ -395,56 +704,6 @@ function App() {
                   <small>PDF, DOCX, TXT, MD or RTF · Up to 20 MB</small>
                 </>
               )}
-            </div>
-
-            <div className="settings-heading">
-              <span className="step-label">02 / PREFERENCES</span>
-              <h2>Analysis settings</h2>
-            </div>
-            <label className="field-label" htmlFor="model">AI model <span className="optional">Optional</span></label>
-            <input
-              id="model"
-              className="text-input"
-              value={model}
-              onChange={(event) => setModel(event.target.value)}
-              placeholder="Uses backend model setting if blank"
-            />
-            <label className="field-label" htmlFor="api-key">API key <span className="optional">Optional</span></label>
-            <input
-              id="api-key"
-              className="text-input"
-              type="password"
-              autoComplete="off"
-              placeholder="Uses server key if left blank"
-              value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
-            />
-            <label className="field-label" htmlFor="base-url">OpenAI-compatible API URL <span className="optional">Optional</span></label>
-            <input
-              id="base-url"
-              className="text-input"
-              type="url"
-              autoComplete="url"
-              placeholder="Uses server setting if left blank"
-              value={baseUrl}
-              onChange={(event) => setBaseUrl(event.target.value)}
-            />
-            <div className="field-row">
-              <div>
-                <label className="field-label" htmlFor="language">Report language</label>
-                <select id="language" className="text-input" value={language} onChange={(event) => setLanguage(event.target.value)}>
-                  <option value="en">English</option>
-                  <option value="zh">中文</option>
-                </select>
-              </div>
-              <div>
-                <label className="field-label" htmlFor="jurisdiction">Legal jurisdiction</label>
-                <select id="jurisdiction" className="text-input" value={jurisdiction} onChange={(event) => setJurisdiction(event.target.value)}>
-                  <option value="auto">Auto-detect</option>
-                  <option value="cn">China</option>
-                  <option value="us-ca">California, US</option>
-                </select>
-              </div>
             </div>
 
             {error && <div className="error-message" role="alert">{error}</div>}
@@ -707,6 +966,12 @@ function ArrowIcon() {
 }
 function DocumentIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6zM14 3v5h5M9 13h6M9 17h6" /></svg>;
+}
+function SettingsIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 3h5l.7 2.2c.6.2 1.2.5 1.7 1l2.2-.7 2.5 4.3-1.6 1.7v1.9l1.6 1.7-2.5 4.3-2.2-.7c-.5.4-1.1.8-1.7 1L14.5 22h-5l-.7-2.3c-.6-.2-1.2-.5-1.7-1l-2.2.7-2.5-4.3L4 13.4v-1.9l-1.6-1.7 2.5-4.3 2.2.7c.5-.4 1.1-.8 1.7-1z" /><circle cx="12" cy="12.5" r="3" /></svg>;
+}
+function UsersIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 20v-1.5a3.5 3.5 0 0 0-3.5-3.5h-5A3.5 3.5 0 0 0 4 18.5V20M10 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM16 4.2a3.5 3.5 0 0 1 0 6.8M17 15h.5a3.5 3.5 0 0 1 3.5 3.5V20" /></svg>;
 }
 
 export default App;

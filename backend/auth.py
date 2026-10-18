@@ -37,12 +37,18 @@ class Credentials(BaseModel):
 class UserResponse(BaseModel):
     id: uuid.UUID
     email: EmailStr
+    is_admin: bool = False
 
 
 def validate_auth_configuration() -> None:
     secret = (os.getenv("AUTH_SECRET_KEY") or "").strip()
     if len(secret.encode("utf-8")) < 32:
         raise RuntimeError("AUTH_SECRET_KEY must be configured with at least 32 characters.")
+
+
+def is_admin_user(user: User) -> bool:
+    admin_email = (os.getenv("ADMIN_EMAIL") or "").strip().casefold()
+    return bool(admin_email) and user.email.casefold() == admin_email
 
 
 def set_session_cookie(response: Response, user_id: uuid.UUID) -> None:
@@ -98,3 +104,12 @@ async def get_current_user(
 
 
 CurrentUser: TypeAlias = Annotated[User, Depends(get_current_user)]
+
+
+async def require_admin(user: CurrentUser) -> User:
+    if not is_admin_user(user):
+        raise HTTPException(status_code=403, detail="Administrator access is required.")
+    return user
+
+
+AdminUser: TypeAlias = Annotated[User, Depends(require_admin)]

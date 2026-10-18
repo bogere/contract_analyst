@@ -6,6 +6,7 @@ asyncpg
 email-validator
 PyJWT
 pwdlib[argon2]
+cryptography
 SQLAlchemy[asyncio]
 python-multipart
 starlette

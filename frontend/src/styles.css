@@ -38,9 +38,14 @@ button { cursor: pointer; }
 .sidebar-heading .eyebrow { margin-bottom: 5px; font-size: 8px; }
 .sidebar-heading h2 { margin: 0; color: #27392e; font-size: 16px; letter-spacing: -.4px; }
 .report-count { display: grid; min-width: 27px; height: 27px; place-items: center; border-radius: 8px; color: #47725d; background: #edf5ef; font-size: 11px; font-weight: 700; }
-.new-analysis-button { display: flex; min-height: 39px; align-items: center; justify-content: center; gap: 8px; margin: 18px 0 22px; border: 0; border-radius: 7px; color: #fff; background: var(--green); font-size: 11px; font-weight: 600; transition: background .16s, box-shadow .16s; }
+.new-analysis-button { display: flex; min-height: 39px; align-items: center; justify-content: center; gap: 8px; margin: 18px 0 8px; border: 0; border-radius: 7px; color: #fff; background: var(--green); font-size: 11px; font-weight: 600; transition: background .16s, box-shadow .16s; }
 .new-analysis-button:hover { background: var(--green-dark); box-shadow: 0 4px 12px #1a604d2c; }
 .new-analysis-button > span { font-size: 19px; font-weight: 400; line-height: 1; }
+.sidebar-nav-button { display: flex; min-height: 36px; align-items: center; gap: 9px; margin: 0 0 19px; padding: 0 10px; border: 1px solid transparent; border-radius: 7px; color: #68756c; background: transparent; font-size: 10px; text-align: left; transition: .15s ease; }
+.sidebar-nav-button:hover, .sidebar-nav-button.active { border-color: #e5ede6; color: #315b46; background: #f0f6f1; }
+.sidebar-nav-button svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.admin-sidebar-heading { margin: 8px 0 7px; }
+.dashboard-sidebar > .sidebar-nav-button { width: 100%; }
 .sidebar-section-heading { display: flex; justify-content: space-between; padding: 0 5px 9px; border-bottom: 1px solid #edf0ec; color: #9aa39c; font: 700 8px Manrope, sans-serif; letter-spacing: 1px; }
 .sidebar-section-heading span:last-child { letter-spacing: 0; }
 .sidebar-report-list { display: flex; min-height: 0; flex: 1; flex-direction: column; gap: 4px; margin: 8px -4px 12px; padding: 0 4px; overflow-y: auto; scrollbar-color: #dce5de transparent; scrollbar-width: thin; }
@@ -65,6 +70,38 @@ button { cursor: pointer; }
 .sidebar-footnote { display: flex; align-items: flex-start; gap: 7px; padding: 12px 5px 0; border-top: 1px solid #edf0ec; color: #929d95; font-size: 8px; line-height: 1.5; }
 .sidebar-footnote svg { width: 13px; flex: 0 0 auto; fill: none; stroke: #7d9887; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .dashboard-content { min-width: 0; }
+.settings-page, .admin-page { max-width: 760px; margin: 0 auto; }
+.settings-page .page-heading { margin-bottom: 22px; }
+.settings-panel, .admin-panel, .users-panel { padding: 25px; }
+.settings-panel-heading { display: flex; align-items: center; gap: 11px; margin-bottom: 23px; padding-bottom: 18px; border-bottom: 1px solid #edf0ec; }
+.settings-panel-icon { display: grid; width: 37px; height: 37px; flex: 0 0 auto; place-items: center; border-radius: 9px; color: #4e7a60; background: #edf5ef; }
+.settings-panel-icon svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.settings-panel-heading h2 { margin: 0 0 4px; color: #33443a; font-size: 14px; }
+.settings-panel-heading p { margin: 0; color: #8a958d; font-size: 10px; }
+.settings-panel .text-input, .admin-panel .text-input { height: 42px; margin-bottom: 18px; font-size: 12px; }
+.settings-panel .field-row .text-input { margin-bottom: 14px; }
+.settings-help { margin: -10px 0 17px; color: #8a958d; font-size: 9px; line-height: 1.5; }
+.clear-key-option { display: flex; align-items: center; gap: 8px; margin: -6px 0 17px; color: #86665a; font-size: 10px; }
+.clear-key-option input { accent-color: var(--green); }
+.settings-done-button { max-width: 170px; margin-top: 8px; }
+.success-message { margin: 8px 0; color: #3d7954; font-size: 10px; }
+.admin-panel { margin-bottom: 16px; }
+.admin-user-form { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+.admin-user-form .error-message, .admin-user-form .analyze-button { grid-column: 1 / -1; }
+.admin-user-form .analyze-button { max-width: 200px; }
+.users-panel { padding-top: 20px; }
+.users-panel-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 13px; }
+.users-panel-heading h2 { margin: 0 0 4px; color: #33443a; font-size: 13px; }
+.users-panel-heading p { margin: 0; color: #929b94; font-size: 9px; }
+.admin-user-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.admin-user-list li { display: flex; min-height: 55px; align-items: center; gap: 10px; border-top: 1px solid #eff1ee; }
+.admin-user-avatar { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border-radius: 50%; color: #47725d; background: #edf5ef; font-size: 11px; font-weight: 700; }
+.admin-user-info { min-width: 0; flex: 1; }
+.admin-user-info strong, .admin-user-info small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-user-info strong { color: #4a574d; font-size: 10px; font-weight: 600; }
+.admin-user-info small { margin-top: 3px; color: #929b94; font-size: 8px; }
+.admin-role-badge { padding: 4px 8px; border-radius: 10px; color: #4c7459; background: #edf5ef; font-size: 8px; font-weight: 600; }
+.admin-empty { margin: 0; color: #929b94; font-size: 10px; }
 .results-column.selected-report { width: 100%; }
 .dashboard-content .page-heading { margin-bottom: 19px; }
 .dashboard-content .page-heading h1 { font-size: clamp(25px, 2.7vw, 32px); }
@@ -253,6 +290,8 @@ select.text-input { cursor: pointer; }
   .page-heading { align-items: flex-start; gap: 12px; }
   .secure-badge { display: none; }
   .main-grid { grid-template-columns: 1fr; }
+  .admin-user-form { grid-template-columns: 1fr; }
+  .settings-panel, .admin-panel, .users-panel { padding: 18px; }
   .empty-state { min-height: 400px; }
   .overview-grid { grid-template-columns: 1fr; }
   .overview-aside { padding: 13px; }

@@ -209,24 +209,25 @@ Set `OPENAI_API_KEY` and `OPENAI_BASE_URL` in `.env` for OpenAI, Ollama, or
 another compatible provider, or set `OPENROUTER_API_KEY` for OpenRouter. The
 backend loads the project-root `.env` on startup, independent of the directory
 from which Uvicorn is launched. Environment variables already set by the
-process take precedence. The UI can also supply an API key and base URL per
-analysis; leave either field blank to use the backend environment. Never commit
-`.env` or put API keys in frontend environment variables.
+process take precedence. An administrator can configure shared provider settings
+for all users in the admin workspace. Leave database overrides blank to use the
+backend environment. Never commit `.env` or put API keys in frontend environment
+variables.
 
 Set `CONTRACTGUARD_MODEL` to a model ID supported by your provider. The default
 is `gpt-4o-mini` for the OpenAI API URL shown in `.env.example`; provider-specific
 IDs such as `anthropic/claude-sonnet-4` should only be used with providers that
-offer that model (for example, OpenRouter). The UI's model field is optional and
-overrides the server setting only when filled in.
+offer that model (for example, OpenRouter). The administrator can configure a
+shared model override; if left blank, the `.env` setting is used.
 
 The web app requires PostgreSQL. Set `DATABASE_URL` to your PostgreSQL
 connection string and generate an `AUTH_SECRET_KEY` with at least 32 characters
 (for example, `openssl rand -hex 32`). On first startup the API creates the
-`users` and `analysis_reports` tables. For HTTPS deployments, set
+`users`, `analysis_reports`, and `workspace_settings` tables. For HTTPS deployments, set
 `SESSION_COOKIE_SECURE=true` and configure
 `CONTRACTGUARD_CORS_ORIGINS` to the exact frontend origin(s).
 
-Users register with an email address and a password of at least 12 characters.
+Accounts use an email address and a password of at least 12 characters.
 Authentication uses a signed, HTTP-only cookie with a 15-minute inactivity
 timeout; authenticated API requests extend the session while it is in use.
 Password hashes are stored with Argon2. The database stores account email/password hash and each user's
@@ -234,9 +235,28 @@ structured analysis report and filename. Uploaded files, extracted contract
 text, and per-request LLM API keys are not stored. Reports are private to their
 owning account.
 
+### Admin workspace
+
+To bootstrap the administrator, first create the intended admin account through
+the registration screen while `ADMIN_EMAIL` is unset. Then set `ADMIN_EMAIL` to
+that account's email in `.env` and restart the backend. Once the configured
+admin account exists, public registration is disabled; the admin can create
+additional accounts from **Manage users**. Admin status is assigned only to the
+configured email address.
+
+The admin's **AI settings** are shared by all users. A database setting takes
+precedence over `CONTRACTGUARD_MODEL`, `OPENAI_BASE_URL`, and the provider API
+keys from `.env`. Leave model or endpoint overrides blank to use `.env`; clear a
+saved provider key to fall back to the environment key. Database provider keys
+are encrypted using a key derived from `AUTH_SECRET_KEY`, and are never returned
+to the browser. Keep `AUTH_SECRET_KEY` stable: rotating it requires re-entering
+any saved provider key. Language and jurisdiction are also shared workspace
+settings.
+
 Start the backend from the project root:
 
 ```bash
+source .venv/bin/activate
 uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000
 ```
 

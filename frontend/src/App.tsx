@@ -29,7 +29,7 @@ function App() {
   const [reports, setReports] = useState<ReportSummary[]>([]);
   const [reportsLoading, setReportsLoading] = useState(false);
   const [activeReportId, setActiveReportId] = useState<string | null>(null);
-  const [activeView, setActiveView] = useState<"dashboard" | "settings" | "users">("dashboard");
+  const [activeView, setActiveView] = useState<"dashboard" | "all-contracts" | "settings" | "users">("dashboard");
   const [historyError, setHistoryError] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -384,37 +384,24 @@ function App() {
             <button className="new-analysis-button" type="button" onClick={startNewAnalysis}>
               <span aria-hidden="true">+</span> New analysis
             </button>
-            {user.is_admin && (
-              <>
-                <div className="sidebar-section-heading admin-sidebar-heading"><span>ADMIN WORKSPACE</span></div>
-                <button
-                  className={`sidebar-nav-button${activeView === "users" ? " active" : ""}`}
-                  type="button"
-                  onClick={() => setActiveView("users")}
-                  aria-current={activeView === "users" ? "page" : undefined}
-                >
-                  <UsersIcon /> Manage users
-                </button>
-                <button
-                  className={`sidebar-nav-button${activeView === "settings" ? " active" : ""}`}
-                  type="button"
-                  onClick={() => setActiveView("settings")}
-                  aria-current={activeView === "settings" ? "page" : undefined}
-                >
-                  <SettingsIcon /> AI settings
-                </button>
-              </>
-            )}
+            <button
+              className={`sidebar-nav-button${activeView === "all-contracts" ? " active" : ""}`}
+              type="button"
+              onClick={() => setActiveView("all-contracts")}
+              aria-current={activeView === "all-contracts" ? "page" : undefined}
+            >
+              <DocumentIcon /> All contracts
+            </button>
             <div className="sidebar-section-heading">
               <span>RECENT CONTRACTS</span>
-              {reports.length > 0 && <span>{reports.length}</span>}
+              {reports.length > 0 && <span>{Math.min(reports.length, 3)}</span>}
             </div>
             {historyError && <p className="error-message sidebar-error" role="alert">{historyError}</p>}
-            <div className="sidebar-report-list" aria-label="Saved contract analyses">
+            <div className="sidebar-report-list" aria-label="Recent contract analyses">
               {reportsLoading ? (
                 <p className="sidebar-status"><span className="spinner sidebar-spinner" /> Loading analyses…</p>
               ) : reports.length ? (
-                reports.map((report) => (
+                reports.slice(0, 3).map((report) => (
                   <button
                     className={`sidebar-report${activeReportId === report.id ? " active" : ""}`}
                     type="button"
@@ -438,11 +425,95 @@ function App() {
                 </div>
               ) : null}
             </div>
+            {user.is_admin && (
+              <>
+                <div className="sidebar-section-heading admin-sidebar-heading"><span>ADMIN WORKSPACE</span></div>
+                <button
+                  className={`sidebar-nav-button${activeView === "users" ? " active" : ""}`}
+                  type="button"
+                  onClick={() => setActiveView("users")}
+                  aria-current={activeView === "users" ? "page" : undefined}
+                >
+                  <UsersIcon /> Manage users
+                </button>
+                <button
+                  className={`sidebar-nav-button${activeView === "settings" ? " active" : ""}`}
+                  type="button"
+                  onClick={() => setActiveView("settings")}
+                  aria-current={activeView === "settings" ? "page" : undefined}
+                >
+                  <SettingsIcon /> AI settings
+                </button>
+              </>
+            )}
             <div className="sidebar-footnote"><ShieldIcon /><span>Only you can access your saved analysis reports.</span></div>
           </aside>
 
           <div className="dashboard-content">
-            {activeView === "users" && user.is_admin ? (
+            {activeView === "all-contracts" ? (
+              <section className="all-contracts-page">
+                <div className="page-heading">
+                  <div>
+                    <p className="eyebrow">CONTRACT LIBRARY</p>
+                    <h1>All contracts</h1>
+                    <p className="intro">Browse and reopen your saved contract analyses.</p>
+                  </div>
+                </div>
+                <div className="panel contracts-panel">
+                  <div className="contracts-panel-heading">
+                    <div>
+                      <h2>Contract analyses</h2>
+                      <p>{reports.length} saved {reports.length === 1 ? "analysis" : "analyses"}</p>
+                    </div>
+                  </div>
+                  {reportsLoading ? (
+                    <p className="contracts-status"><span className="spinner sidebar-spinner" /> Loading analyses…</p>
+                  ) : historyError ? (
+                    <p className="error-message" role="alert">{historyError}</p>
+                  ) : reports.length ? (
+                    <div className="contracts-table-wrap">
+                      <table className="contracts-table">
+                        <thead>
+                          <tr>
+                            <th scope="col">Contract</th>
+                            <th scope="col">Type</th>
+                            <th scope="col">Date analyzed</th>
+                            <th scope="col">Fairness</th>
+                            <th scope="col"><span className="visually-hidden">Actions</span></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {reports.map((report) => (
+                            <tr key={report.id}>
+                              <td className="contracts-filename">{report.filename}</td>
+                              <td className="contracts-type">{report.contract_type.replace(/_/g, " ")}</td>
+                              <td><time dateTime={report.created_at}>{new Date(report.created_at).toLocaleDateString()}</time></td>
+                              <td>
+                                <span className={`contracts-grade${report.fairness_score < 50 ? " low" : ""}`}>
+                                  {report.fairness_grade}
+                                </span>
+                                <span className="contracts-score">{report.fairness_score}/100</span>
+                              </td>
+                              <td>
+                                <button className="contracts-open-button" type="button" onClick={() => void openReport(report)}>
+                                  Open
+                                  <span className="visually-hidden"> {report.filename}</span>
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="contracts-empty">
+                      <span>No contract analyses yet.</span>
+                      <button className="contracts-open-button" type="button" onClick={startNewAnalysis}>Start an analysis</button>
+                    </div>
+                  )}
+                </div>
+              </section>
+            ) : activeView === "users" && user.is_admin ? (
               <section className="admin-page">
                 <div className="page-heading">
                   <div>

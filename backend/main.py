@@ -49,13 +49,20 @@ from backend.database import (  # noqa: E402
     get_database_session,
     initialize_database,
 )
+from backend.ocr import (
+    IMAGE_EXTENSIONS,
+    OCRPageLimitError,
+    OCRUnavailableError,
+    extract_image_text,
+    extract_pdf_text,
+)
 from contractguard.analyzer import analyze_contract
 from contractguard.checklist import run_checklist
 from contractguard.models import AnalysisResult
 from contractguard.parser import extract_text
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
-SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md", ".rtf"}
+SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md", ".rtf", *IMAGE_EXTENSIONS}
 DEFAULT_MODEL = (os.getenv("CONTRACTGUARD_MODEL") or "gpt-4o-mini").strip() or "gpt-4o-mini"
 
 cors_origins = [
@@ -427,7 +434,7 @@ async def analyze_upload(
         if suffix not in SUPPORTED_EXTENSIONS:
             raise HTTPException(
                 status_code=415,
-                detail="Unsupported file type. Upload a PDF, DOCX, TXT, MD, or RTF document.",
+                detail="Unsupported file type. Upload a PDF, DOCX, TXT, MD, RTF, BMP, JPEG, PNG, TIFF, or WebP document.",
             )
 
         settings = await session.get(WorkspaceSettings, "global")
@@ -458,11 +465,26 @@ async def analyze_upload(
                     raise HTTPException(status_code=413, detail="File is larger than the 20 MiB upload limit.")
                 temp_file.write(chunk)
 
-        text = await run_in_threadpool(extract_text, temp_path)
+        if suffix in IMAGE_EXTENSIONS:
+            try:
+                text = await run_in_threadpool(extract_image_text, temp_path)
+            except OCRUnavailableError as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+            except OCRPageLimitError as exc:
+                raise HTTPException(status_code=413, detail=str(exc)) from exc
+        elif suffix == ".pdf":
+            try:
+                text = await run_in_threadpool(extract_pdf_text, temp_path)
+            except OCRUnavailableError as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+            except OCRPageLimitError as exc:
+                raise HTTPException(status_code=413, detail=str(exc)) from exc
+        else:
+            text = await run_in_threadpool(extract_text, temp_path)
         if len(text.strip()) < 50:
             raise HTTPException(
                 status_code=422,
-                detail="Contract text is too short. Please upload a complete, text-readable document.",
+                detail="Contract text is too short. Please upload a complete, readable document.",
             )
 
         try:

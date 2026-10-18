@@ -4,7 +4,7 @@ import type { AdminSettings, AdminUserSummary, AnalysisResult, Issue, ReportSumm
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
-const ACCEPTED = ".pdf,.docx,.txt,.md,.rtf";
+const ACCEPTED = ".pdf,.docx,.txt,.md,.rtf,.bmp,.jpg,.jpeg,.png,.tif,.tiff,.webp";
 
 const tabs: { id: ResultTab; label: string }[] = [
   { id: "overview", label: "Overview" },
@@ -151,8 +151,8 @@ function App() {
   function selectFile(nextFile?: File) {
     if (!nextFile) return;
     const extension = nextFile.name.split(".").pop()?.toLowerCase();
-    if (!extension || !["pdf", "docx", "txt", "md", "rtf"].includes(extension)) {
-      setError("Please choose a PDF, DOCX, TXT, Markdown, or RTF document.");
+    if (!extension || !["pdf", "docx", "txt", "md", "rtf", "bmp", "jpg", "jpeg", "png", "tif", "tiff", "webp"].includes(extension)) {
+      setError("Please choose a PDF, DOCX, TXT, Markdown, RTF, BMP, JPEG, PNG, TIFF, or WebP document.");
       return;
     }
     if (nextFile.size > MAX_FILE_BYTES) {
@@ -772,7 +772,7 @@ function App() {
                 <>
                   <strong>Drop your file here</strong>
                   <span>or <span className="browse-link">browse files</span></span>
-                  <small>PDF, DOCX, TXT, MD or RTF · Up to 20 MB</small>
+                  <small>PDF, DOCX, TXT, MD, RTF or image · Up to 20 MB</small>
                 </>
               )}
             </div>

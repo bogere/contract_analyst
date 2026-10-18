@@ -144,11 +144,12 @@ for flag in result.red_flags:
 
 | Format | Extension | Notes |
 |--------|-----------|-------|
-| PDF | `.pdf` | Text-based PDFs. Scanned/image-based PDFs require OCR (coming soon). |
+| PDF | `.pdf` | Text-based and scanned/image-only PDFs (Tesseract OCR for scanned pages) |
 | Word | `.docx` | Microsoft Word documents |
 | Plain Text | `.txt` | Plain text files |
 | Markdown | `.md` | Markdown files |
 | Rich Text | `.rtf` | Rich Text Format files |
+| Images | `.bmp`, `.jpg`, `.jpeg`, `.png`, `.tif`, `.tiff`, `.webp` | Scanned contract images (Tesseract OCR) |
 
 ## Supported Contract Types
 
@@ -168,7 +169,7 @@ ContractGuard automatically detects the contract type and tailors its analysis a
 
 ![ContractGuard pipeline](docs/architecture.png)
 
-1. **Parse** — Extracts text from your document (PDF, DOCX, TXT). For PDFs, uses `pdfplumber` to handle complex layouts. For DOCX, uses `python-docx` to read all paragraphs.
+1. **Parse** — Extracts text from your document (PDF, DOCX, TXT). For PDFs, uses `pdfplumber` to handle complex layouts and Tesseract OCR with PDFium rendering for scanned pages. For DOCX, uses `python-docx` to read all paragraphs.
 
 2. **Detect** — Sends the extracted text to the LLM, which automatically identifies the contract type (lease, NDA, employment, etc.) and adjusts its analysis strategy.
 
@@ -227,6 +228,20 @@ connection string and generate an `AUTH_SECRET_KEY` with at least 32 characters
 `SESSION_COOKIE_SECURE=true` and configure
 `CONTRACTGUARD_CORS_ORIGINS` to the exact frontend origin(s).
 
+Scanned PDFs and images require the Tesseract OCR executable and language data
+on the backend host. On Debian/Ubuntu, install English and Simplified Chinese OCR
+data with:
+
+```bash
+sudo apt-get install tesseract-ocr tesseract-ocr-chi-sim
+```
+
+The default OCR languages are `eng+chi_sim`; set `CONTRACTGUARD_OCR_LANG` to
+the Tesseract language codes installed on your host to change them. Text-based
+PDFs do not require Tesseract to be installed. OCR is applied only to scanned
+PDF pages. Uploaded images and multi-page TIFFs are OCR'd directly, with a
+100-page OCR limit and a 50-megapixel per-image limit.
+
 Accounts use an email address and a password of at least 12 characters.
 Authentication uses a signed, HTTP-only cookie with a 15-minute inactivity
 timeout; authenticated API requests extend the session while it is in use.
@@ -274,9 +289,9 @@ origin when it runs elsewhere, and set `CONTRACTGUARD_CORS_ORIGINS` on the backe
 to a comma-separated list of allowed frontend origins.
 
 The API accepts PDF, DOCX, TXT, Markdown, and RTF files up to 20 MiB. It extracts
-text with ContractGuard, runs the library analysis and jurisdiction checklist,
-returns the structured result, and removes its temporary upload file afterward.
-Scanned/image-only PDFs are not supported without OCR. Contract text is sent to
+text with ContractGuard, applies OCR to scanned PDF pages when needed, runs the
+library analysis and jurisdiction checklist, returns the structured result,
+and removes its temporary upload file afterward. Contract text is sent to
 the configured LLM provider; use a local Ollama-compatible endpoint when it must
 stay on your machine. `GET /api/health` can be used to check API availability.
 
@@ -319,7 +334,6 @@ Yes. `--json` gives parseable output; exit code is 0 on success, 1 on error. E.g
 
 **Planned:**
 
-- **OCR for scanned PDFs** — handle image-only contracts, not just text PDFs, which is where a lot of real paperwork actually lives.
 - **Pre-built contract templates** — a few common contract types with known red flags, useful both as a starting point and as a test corpus.
 
 ## Related Projects

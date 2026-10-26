@@ -152,3 +152,7 @@ backend/       FastAPI routes, authentication, PostgreSQL models, OCR
 frontend/      React and TypeScript web application
 docs/README.md ContractGuard library CLI and Python API guide
 ```
+
+## License
+
+This project is licensed under the [Apache License, Version 2.0](https://www.apache.org/licenses/LICENSE-2.0).

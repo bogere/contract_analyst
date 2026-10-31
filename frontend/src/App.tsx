@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from "react";
-import type { AdminSettings, AdminUserSummary, AnalysisResult, Issue, ReportSummary, ResultTab, SavedReport, SessionUser } from "./types";
+import type { AdminSettings, AdminUserSummary, AnalysisResult, BillingInfo, Issue, ReportSummary, ResultTab, SavedReport, SessionUser } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
@@ -29,7 +29,7 @@ function App() {
   const [reports, setReports] = useState<ReportSummary[]>([]);
   const [reportsLoading, setReportsLoading] = useState(false);
   const [activeReportId, setActiveReportId] = useState<string | null>(null);
-  const [activeView, setActiveView] = useState<"dashboard" | "all-contracts" | "settings" | "users">("dashboard");
+  const [activeView, setActiveView] = useState<"dashboard" | "all-contracts" | "billing" | "settings" | "users">("dashboard");
   const [historyError, setHistoryError] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -57,6 +57,11 @@ function App() {
   const [newUserEmail, setNewUserEmail] = useState("");
   const [newUserPassword, setNewUserPassword] = useState("");
   const [creatingUser, setCreatingUser] = useState(false);
+  const [billingInfo, setBillingInfo] = useState<BillingInfo | null>(null);
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingError, setBillingError] = useState("");
+  const [billingNotice, setBillingNotice] = useState("");
+  const [billingAction, setBillingAction] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -97,6 +102,62 @@ function App() {
       .finally(() => {
         if (active) setReportsLoading(false);
       });
+    return () => { active = false; };
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      setBillingInfo(null);
+      return;
+    }
+    let active = true;
+    async function loadBilling() {
+      setBillingLoading(true);
+      setBillingError("");
+      const params = new URLSearchParams(window.location.search);
+      const returnStatus = params.get("billing");
+      if (returnStatus === "success") {
+        setActiveView("billing");
+        const subscriptionId = params.get("subscription_id");
+        if (subscriptionId) {
+          try {
+            const response = await fetch(`${API_URL}/api/billing/confirm`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ subscription_id: subscriptionId }),
+            });
+            const body = await response.json();
+            if (!response.ok) throw new Error(body.detail || "Unable to confirm your PayPal subscription.");
+            if (active) {
+              setBillingInfo(body as BillingInfo);
+              setBillingNotice("Your PayPal subscription is active.");
+            }
+          } catch (cause) {
+            if (active) setBillingError(cause instanceof Error ? cause.message : "Unable to confirm your PayPal subscription.");
+          }
+        } else if (active) {
+          setBillingError("PayPal returned without a subscription ID. Please contact support if you were charged.");
+        }
+        window.history.replaceState({}, "", `${window.location.pathname}${window.location.hash}`);
+      } else if (returnStatus === "cancelled") {
+        setActiveView("billing");
+        setBillingNotice("PayPal checkout was cancelled; you have not been subscribed.");
+        window.history.replaceState({}, "", `${window.location.pathname}${window.location.hash}`);
+      }
+
+      try {
+        const response = await fetch(`${API_URL}/api/billing`, { credentials: "include" });
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.detail || "Unable to load your billing information.");
+        if (active) setBillingInfo(body as BillingInfo);
+      } catch (cause) {
+        if (active) setBillingError(cause instanceof Error ? cause.message : "Unable to load your billing information.");
+      } finally {
+        if (active) setBillingLoading(false);
+      }
+    }
+    void loadBilling();
     return () => { active = false; };
   }, [user]);
 
@@ -193,6 +254,7 @@ function App() {
       setResult(body as AnalysisResult);
       setResultFilename(file.name);
       setActiveTab("overview");
+      setBillingInfo((current) => current ? { ...current, monthly_usage: current.monthly_usage + 1 } : current);
       const reportsResponse = await fetch(`${API_URL}/api/reports`, { credentials: "include" });
       if (reportsResponse.ok) {
         const nextReports = await reportsResponse.json() as ReportSummary[];
@@ -283,6 +345,47 @@ function App() {
     }
   }
 
+  async function startCheckout(planKey: "pro" | "business") {
+    setBillingAction(planKey);
+    setBillingError("");
+    setBillingNotice("");
+    try {
+      const response = await fetch(`${API_URL}/api/billing/checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ plan_key: planKey }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.detail || "Unable to start PayPal checkout.");
+      window.location.assign(body.approval_url as string);
+    } catch (cause) {
+      setBillingError(cause instanceof Error ? cause.message : "Unable to start PayPal checkout.");
+      setBillingAction(null);
+    }
+  }
+
+  async function cancelSubscription() {
+    if (!window.confirm("Cancel your PayPal subscription? Your paid plan access will end when PayPal confirms cancellation.")) return;
+    setBillingAction("cancel");
+    setBillingError("");
+    setBillingNotice("");
+    try {
+      const response = await fetch(`${API_URL}/api/billing/cancel`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.detail || "Unable to cancel your subscription.");
+      setBillingInfo(body as BillingInfo);
+      setBillingNotice("Your subscription was cancelled. Your account is now on the Free plan.");
+    } catch (cause) {
+      setBillingError(cause instanceof Error ? cause.message : "Unable to cancel your subscription.");
+    } finally {
+      setBillingAction(null);
+    }
+  }
+
   const signOut = useCallback(async (automatic = false) => {
     try {
       const response = await fetch(`${API_URL}/api/auth/logout`, {
@@ -304,6 +407,9 @@ function App() {
     setClearAdminApiKey(false);
     setAdminSettingsSaved("");
     setAdminUsers([]);
+    setBillingInfo(null);
+    setBillingError("");
+    setBillingNotice("");
     setSessionError(automatic ? "You were signed out after 15 minutes of inactivity." : "");
   }, []);
 
@@ -391,6 +497,14 @@ function App() {
               aria-current={activeView === "all-contracts" ? "page" : undefined}
             >
               <DocumentIcon /> All contracts
+            </button>
+            <button
+              className={`sidebar-nav-button${activeView === "billing" ? " active" : ""}`}
+              type="button"
+              onClick={() => setActiveView("billing")}
+              aria-current={activeView === "billing" ? "page" : undefined}
+            >
+              <span aria-hidden="true">$</span> Plans &amp; billing
             </button>
             <div className="sidebar-section-heading">
               <span>RECENT CONTRACTS</span>
@@ -512,6 +626,105 @@ function App() {
                     </div>
                   )}
                 </div>
+              </section>
+            ) : activeView === "billing" ? (
+              <section className="billing-page">
+                <div className="page-heading">
+                  <div>
+                    <p className="eyebrow">ACCOUNT SUBSCRIPTION</p>
+                    <h1>Plans &amp; billing</h1>
+                    <p className="intro">Choose a monthly plan for your contract analyses.</p>
+                  </div>
+                </div>
+                {billingError && <div className="error-message" role="alert">{billingError}</div>}
+                {billingNotice && <p className="success-message" role="status">{billingNotice}</p>}
+                {billingLoading || !billingInfo ? (
+                  <div className="panel billing-loading"><span className="spinner sidebar-spinner" /> Loading your plan…</div>
+                ) : (
+                  <>
+                    <div className="panel billing-current">
+                      <div>
+                        <p className="eyebrow">CURRENT PLAN</p>
+                        <h2>{billingInfo.current_plan_name}</h2>
+                        <p>
+                          {billingInfo.monthly_usage} of {billingInfo.monthly_limit} analyses used this month
+                          {billingInfo.next_billing_time && ` · Renews ${new Date(billingInfo.next_billing_time).toLocaleDateString()}`}
+                        </p>
+                      </div>
+                      {billingInfo.current_plan_key !== "free" && billingInfo.subscription_status === "ACTIVE" && (
+                        <button
+                          className="billing-cancel-button"
+                          type="button"
+                          onClick={() => void cancelSubscription()}
+                          disabled={billingAction !== null}
+                        >
+                          {billingAction === "cancel" ? "Cancelling…" : "Cancel subscription"}
+                        </button>
+                      )}
+                    </div>
+                    {billingInfo.pending_plan_key !== null && (
+                      <p className="billing-pending" role="status">
+                        Your PayPal checkout is still pending. Select the plan you started to continue checkout.
+                      </p>
+                    )}
+                    <div className="billing-plan-grid">
+                      {billingInfo.plans.map((plan) => {
+                        const current = billingInfo.current_plan_key === plan.key;
+                        const pending = billingInfo.pending_plan_key === plan.key;
+                        const paidPlanKey = plan.key === "pro" || plan.key === "business" ? plan.key : null;
+                        return (
+                          <article className={`panel billing-plan${current ? " current" : ""}`} key={plan.key}>
+                            <div className="billing-plan-heading">
+                              <div>
+                                <h2>{plan.name}</h2>
+                                <p>{plan.description}</p>
+                              </div>
+                              {current && <span className="billing-current-badge">Current</span>}
+                            </div>
+                            <p className="billing-price">{plan.price}</p>
+                            <p className="billing-allowance">{plan.monthly_limit} analyses per month</p>
+                            {current ? (
+                              <button className="analyze-button billing-plan-button" type="button" disabled>
+                                Current plan
+                              </button>
+                            ) : paidPlanKey ? (
+                              <button
+                                className="analyze-button billing-plan-button"
+                                type="button"
+                                onClick={() => void startCheckout(paidPlanKey)}
+                                disabled={
+                                  billingAction !== null
+                                  || !plan.available
+                                  || (billingInfo.current_plan_key !== "free" && !pending)
+                                  || (billingInfo.pending_plan_key !== null && !pending)
+                                }
+                              >
+                                {billingAction === plan.key
+                                  ? "Opening PayPal…"
+                                  : !plan.available
+                                    ? "Unavailable"
+                                    : billingInfo.pending_plan_key !== null && !pending
+                                      ? "Finish pending checkout first"
+                                      : billingInfo.current_plan_key !== "free"
+                                        ? "Cancel current plan first"
+                                        : pending
+                                          ? "Continue checkout"
+                                          : "Subscribe with PayPal"}
+                              </button>
+                            ) : (
+                              <button className="analyze-button billing-plan-button" type="button" disabled>
+                                Included
+                              </button>
+                            )}
+                          </article>
+                        );
+                      })}
+                    </div>
+                    <p className="billing-disclaimer">
+                      Paid plans renew monthly through PayPal. Cancelling stops future renewals and returns your account to the Free plan.
+                    </p>
+                  </>
+                )}
               </section>
             ) : activeView === "users" && user.is_admin ? (
               <section className="admin-page">
@@ -777,9 +990,21 @@ function App() {
               )}
             </div>
 
+            {billingInfo && billingInfo.monthly_usage >= billingInfo.monthly_limit && (
+              <div className="billing-quota-notice" role="status">
+                <strong>Monthly analysis limit reached.</strong>
+                <span>Upgrade your plan to continue reviewing contracts.</span>
+                <button type="button" onClick={() => setActiveView("billing")}>View plans</button>
+              </div>
+            )}
             {error && <div className="error-message" role="alert">{error}</div>}
-            <button className="analyze-button" type="button" disabled={!file || loading} onClick={analyze}>
-              {loading ? <><span className="spinner" /> Analyzing contract…</> : <>Analyze contract <ArrowIcon /></>}
+            <button
+              className="analyze-button"
+              type="button"
+              disabled={!file || loading || Boolean(billingInfo && billingInfo.monthly_usage >= billingInfo.monthly_limit)}
+              onClick={analyze}
+            >
+              {loading ? <><span className="spinner" /> Analyzing contract…</> : billingInfo && billingInfo.monthly_usage >= billingInfo.monthly_limit ? "Monthly limit reached" : <>Analyze contract <ArrowIcon /></>}
             </button>
             <p className="disclaimer">AI analysis is educational, not legal advice. Consult a licensed attorney for legal decisions.</p>
           </aside>
@@ -882,7 +1107,7 @@ function AuthScreen({ initialError, onAuthenticated }: {
             {mode === "login" ? "Create account" : "Sign in"}
           </button>
         </p>
-        <p className="auth-privacy">Uploaded contracts and extracted text are deleted after analysis. Only your account and analysis report are saved.</p>
+        <p className="auth-privacy">Uploaded contracts and extracted text are deleted after analysis. We store your account, reports, and subscription status if you subscribe.</p>
       </section>
     </main>
   );

@@ -53,6 +53,29 @@ class AnalysisReport(Base):
     user: Mapped[User] = relationship(back_populates="reports")
 
 
+class Subscription(Base):
+    __tablename__ = "subscriptions"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+    )
+    plan_key: Mapped[str] = mapped_column(String(32))
+    paypal_subscription_id: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    approval_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    status: Mapped[str] = mapped_column(String(32))
+    next_billing_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_webhook_event_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+
 class WorkspaceSettings(Base):
     __tablename__ = "workspace_settings"
 

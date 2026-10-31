@@ -43,6 +43,27 @@ export type SessionUser = {
   is_admin: boolean;
 };
 
+export type BillingPlan = {
+  key: "free" | "pro" | "business";
+  name: string;
+  price: string;
+  monthly_limit: number;
+  description: string;
+  available: boolean;
+};
+
+export type BillingInfo = {
+  current_plan_key: BillingPlan["key"];
+  current_plan_name: string;
+  subscription_status: string;
+  pending_plan_key: "pro" | "business" | null;
+  monthly_usage: number;
+  monthly_limit: number;
+  next_billing_time: string | null;
+  paypal_enabled: boolean;
+  plans: BillingPlan[];
+};
+
 export type AdminUserSummary = SessionUser & {
   created_at: string;
 };

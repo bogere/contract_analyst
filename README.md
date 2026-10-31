@@ -18,10 +18,11 @@ Every year, millions of people sign contracts they don't fully understand — ap
 - Review contract findings, fairness score, and statute checks in the browser.
 - Register and sign in with an email address and password; passwords must be at least 12 characters.
 - Save and revisit your analysis reports. Reports are private to the account that created them.
+- Choose a monthly Free, Pro, or Business analysis plan and subscribe or cancel through PayPal.
 - Use the admin workspace to manage accounts and configure shared AI provider, model, language, and jurisdiction settings.
 - Use Tesseract OCR for scanned PDFs and image uploads.
 
-For the ContractGuard library's CLI and Python API, see the [library usage guide](docs/README.md).
+For the ContractGuard library's CLI and Python API, see the [library usage guide](docs/CONTRACTGUARD.md).
 
 ## Requirements
 
@@ -109,9 +110,9 @@ Check API availability at <http://localhost:8000/api/health>. To create a produc
 
 ## First administrator account
 
-For the initial setup, leave `ADMIN_EMAIL` unset. Start the app and register the account that should become the administrator. Then set `ADMIN_EMAIL` in the root `.env` to that account's email address and restart the backend.
+For the initial setup, leave `ADMIN_EMAIL` unset. Start the app and register the account that should become the administrator. Then set `ADMIN_EMAIL` in the root `.env` to that account's email address and restart the backend. Public registration remains available for customers; only the configured email address receives administrator access.
 
-Once that configured account exists, public registration is disabled. The administrator can create additional accounts from the admin workspace. Admin status is assigned only to the configured email address.
+The administrator can also create accounts from the admin workspace. Admin status is assigned only to the configured email address.
 
 ## Configuration
 
@@ -128,6 +129,25 @@ Once that configured account exists, public registration is disabled. The admini
 | `CONTRACTGUARD_OCR_LANG` | Installed Tesseract language codes, defaulting to `eng+chi_sim`. |
 | `CONTRACTGUARD_CORS_ORIGINS` | Comma-separated frontend origins allowed by the backend. Defaults to `http://localhost:5173`. |
 | `VITE_API_URL` | Backend origin used by the frontend; set in `frontend/.env.local` if it differs from `http://localhost:8000`. |
+| `PAYPAL_MODE` | `sandbox` for testing or `live` for real payments. Defaults to `sandbox`. |
+| `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` | Server-side credentials for the matching PayPal app. Never expose the secret to the frontend. |
+| `PAYPAL_WEBHOOK_ID` | Webhook ID used to verify events from PayPal. |
+| `PAYPAL_PRO_PLAN_ID` / `PAYPAL_BUSINESS_PLAN_ID` | IDs for the corresponding active, monthly USD subscription plans in PayPal. |
+| `APP_BASE_URL` | Public frontend URL used for PayPal's return and cancel redirects. Defaults to `http://localhost:5173`. |
+
+### PayPal subscriptions
+
+The built-in plans are Free (3 analyses per UTC calendar month), Pro ($19/month, 50 analyses), and Business ($49/month, 250 analyses). Analysis limits are enforced by the API. Paid subscriptions are individual to each account and are billed monthly by PayPal. A plan change requires cancelling the current subscription first; cancellation immediately returns the account to the Free plan.
+
+To enable paid plans:
+
+1. Create a PayPal developer app and set its client ID and secret in the backend `.env`. Start with sandbox credentials and `PAYPAL_MODE=sandbox`.
+2. In PayPal, create active subscription plans in USD: Pro at $19 billed every month and Business at $49 billed every month. Put their plan IDs in `PAYPAL_PRO_PLAN_ID` and `PAYPAL_BUSINESS_PLAN_ID`.
+3. Register a PayPal webhook pointing to `https://<your-api-host>/api/billing/webhook`, subscribe it to `BILLING.SUBSCRIPTION.ACTIVATED`, `BILLING.SUBSCRIPTION.CANCELLED`, `BILLING.SUBSCRIPTION.SUSPENDED`, `BILLING.SUBSCRIPTION.EXPIRED`, and `BILLING.SUBSCRIPTION.UPDATED`, and set its ID as `PAYPAL_WEBHOOK_ID`.
+4. Set `APP_BASE_URL` to the frontend's public URL and configure `CONTRACTGUARD_CORS_ORIGINS` for that exact origin.
+5. Test signup, checkout, renewal, and cancellation using sandbox accounts before launch. For live payments, use live PayPal app credentials and live plan and webhook IDs, set `PAYPAL_MODE=live`, enable HTTPS, and set `SESSION_COOKIE_SECURE=true`.
+
+The backend checks that configured PayPal plans are active and charge the expected monthly USD price before starting checkout. When PayPal settings or plan IDs are missing, paid plans remain unavailable; the Free tier continues to work.
 
 The admin workspace can override the model, provider URL and key, language, and jurisdiction for all users. Admin-saved provider keys are encrypted using a key derived from `AUTH_SECRET_KEY`; changing that secret means saved keys must be entered again. Leave workspace provider overrides blank to use backend environment settings.
 
@@ -143,12 +163,13 @@ Text-based PDFs do not require Tesseract. OCR uses the configured language codes
 
 The API accepts uploads up to 20 MiB, extracts the contract text, analyzes it, and removes its temporary upload file afterward. Contract text is sent to the AI provider configured for the workspace. Use a local Ollama-compatible endpoint if contract text must remain on your machine.
 
-PostgreSQL stores account email addresses, password hashes, structured analysis reports and filenames, and workspace settings. It does not store uploaded files or extracted contract text. Passwords are hashed with Argon2, and each user's saved reports are accessible only to that user. Session cookies are HTTP-only and expire after 15 minutes of inactivity.
+PostgreSQL stores account email addresses, password hashes, structured analysis reports and filenames, workspace settings, and PayPal subscription IDs and statuses. It does not store uploaded files or extracted contract text. Passwords are hashed with Argon2, and each user's saved reports and subscription are accessible only to that user. Session cookies are HTTP-only and expire after 15 minutes of inactivity.
 
 ## Project layout
 
 ```text
 backend/       FastAPI routes, authentication, PostgreSQL models, OCR
+               PayPal subscription API and webhook verification
 frontend/      React and TypeScript web application
-docs/README.md ContractGuard library CLI and Python API guide
+docs/CONTRACTGUARD.md ContractGuard library CLI and Python API guide
 ```

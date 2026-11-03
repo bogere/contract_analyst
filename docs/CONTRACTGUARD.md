@@ -224,7 +224,7 @@ shared model override; if left blank, the `.env` setting is used.
 The web app requires PostgreSQL. Set `DATABASE_URL` to your PostgreSQL
 connection string and generate an `AUTH_SECRET_KEY` with at least 32 characters
 (for example, `openssl rand -hex 32`). On first startup the API creates the
-`users`, `analysis_reports`, and `workspace_settings` tables. For HTTPS deployments, set
+`users`, `analysis_reports`, `workspace_settings`, and `subscriptions` tables. For HTTPS deployments, set
 `SESSION_COOKIE_SECURE=true` and configure
 `CONTRACTGUARD_CORS_ORIGINS` to the exact frontend origin(s).
 
@@ -245,19 +245,19 @@ PDF pages. Uploaded images and multi-page TIFFs are OCR'd directly, with a
 Accounts use an email address and a password of at least 12 characters.
 Authentication uses a signed, HTTP-only cookie with a 15-minute inactivity
 timeout; authenticated API requests extend the session while it is in use.
-Password hashes are stored with Argon2. The database stores account email/password hash and each user's
-structured analysis report and filename. Uploaded files, extracted contract
-text, and per-request LLM API keys are not stored. Reports are private to their
-owning account.
+Password hashes are stored with Argon2. The database stores account
+email/password hashes, each user's structured analysis reports and filenames,
+workspace settings, and subscription IDs/statuses. Uploaded files, extracted
+contract text, and per-request LLM API keys are not stored. Reports and
+subscriptions are private to their owning account.
 
 ### Admin workspace
 
 To bootstrap the administrator, first create the intended admin account through
 the registration screen while `ADMIN_EMAIL` is unset. Then set `ADMIN_EMAIL` to
-that account's email in `.env` and restart the backend. Once the configured
-admin account exists, public registration is disabled; the admin can create
-additional accounts from **Manage users**. Admin status is assigned only to the
-configured email address.
+that account's email in `.env` and restart the backend. Public registration
+remains enabled for customers, and the admin can also create accounts from
+**Manage users**. Admin status is assigned only to the configured email address.
 
 The admin's **AI settings** are shared by all users. A database setting takes
 precedence over `CONTRACTGUARD_MODEL`, `OPENAI_BASE_URL`, and the provider API
@@ -267,6 +267,44 @@ are encrypted using a key derived from `AUTH_SECRET_KEY`, and are never returned
 to the browser. Keep `AUTH_SECRET_KEY` stable: rotating it requires re-entering
 any saved provider key. Language and jurisdiction are also shared workspace
 settings.
+
+### PayPal subscriptions
+
+Each account can subscribe independently. The built-in plans are Free (3
+analyses per UTC calendar month), Pro ($19 USD/month, 50 analyses), and Business
+($49 USD/month, 250 analyses). Paid plans renew monthly through PayPal. Cancelling
+a paid plan returns the account to Free immediately.
+
+To configure billing, create a PayPal developer app and set its credentials in
+the project-root `.env`:
+
+```dotenv
+PAYPAL_MODE=sandbox
+PAYPAL_CLIENT_ID=<sandbox-client-id>
+PAYPAL_CLIENT_SECRET=<sandbox-client-secret>
+PAYPAL_WEBHOOK_ID=<sandbox-webhook-id>
+PAYPAL_PRO_PLAN_ID=<active-monthly-19-usd-plan-id>
+PAYPAL_BUSINESS_PLAN_ID=<active-monthly-49-usd-plan-id>
+APP_BASE_URL=http://localhost:5173
+```
+
+Create active USD subscription plans in PayPal for Pro ($19 every month) and
+Business ($49 every month), then set the matching plan IDs above. The backend
+checks the plan status, monthly billing interval, currency, and price before it
+starts checkout and confirms a subscription.
+
+Configure a PayPal webhook to send events to
+`https://<your-api-host>/api/billing/webhook`. Subscribe to
+`BILLING.SUBSCRIPTION.ACTIVATED`, `BILLING.SUBSCRIPTION.CANCELLED`,
+`BILLING.SUBSCRIPTION.SUSPENDED`, `BILLING.SUBSCRIPTION.EXPIRED`, and
+`BILLING.SUBSCRIPTION.UPDATED`; set the webhook ID from the matching PayPal
+environment in `PAYPAL_WEBHOOK_ID`. Webhook signatures are verified by the API.
+
+Test with sandbox credentials, plans, and webhook before launch. For real
+payments, switch `PAYPAL_MODE` to `live` and replace the credentials, plan IDs,
+and webhook ID with live values. Use HTTPS, set `SESSION_COOKIE_SECURE=true`,
+and set `APP_BASE_URL` and `CONTRACTGUARD_CORS_ORIGINS` to the public app
+origins. Keep the PayPal client secret on the backend only.
 
 Start the backend from the project root:
 
@@ -288,8 +326,9 @@ Open <http://localhost:5173>. The frontend sends uploads to
 origin when it runs elsewhere, and set `CONTRACTGUARD_CORS_ORIGINS` on the backend
 to a comma-separated list of allowed frontend origins.
 
-The API accepts PDF, DOCX, TXT, Markdown, and RTF files up to 20 MiB. It extracts
-text with ContractGuard, applies OCR to scanned PDF pages when needed, runs the
+The API accepts PDF, DOCX, TXT, Markdown, RTF, and supported image files up to
+20 MiB. It extracts text with ContractGuard, applies OCR to scanned PDF pages
+and images when needed, runs the
 library analysis and jurisdiction checklist, returns the structured result,
 and removes its temporary upload file afterward. Contract text is sent to
 the configured LLM provider; use a local Ollama-compatible endpoint when it must

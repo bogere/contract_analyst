@@ -6,6 +6,7 @@ pytesseract
 python-dotenv
 fastapi
 openai
+httpx
 asyncpg
 email-validator
 PyJWT

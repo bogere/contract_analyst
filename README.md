@@ -142,7 +142,13 @@ The built-in plans are Free (3 analyses per UTC calendar month), Pro ($19/month,
 To enable paid plans:
 
 1. Create a PayPal developer app and set its client ID and secret in the backend `.env`. Start with sandbox credentials and `PAYPAL_MODE=sandbox`.
-2. In PayPal, create active subscription plans in USD: Pro at $19 billed every month and Business at $49 billed every month. Put their plan IDs in `PAYPAL_PRO_PLAN_ID` and `PAYPAL_BUSINESS_PLAN_ID`.
+2. From the repository root, create a PayPal product and the active monthly Sandbox plans:
+
+   ```bash
+   python -m backend.paypal_cli
+   ```
+
+   Add the printed `PAYPAL_PRO_PLAN_ID` and `PAYPAL_BUSINESS_PLAN_ID` values to `.env`. To use a product you already created, pass `--product-id <paypal-product-id>`. To create only one plan (for example, when resuming after partial success), also pass `--only-plan pro` or `--only-plan business`. This command creates catalog items only; customers subscribe through the frontend billing page.
 3. Register a PayPal webhook pointing to `https://<your-api-host>/api/billing/webhook`, subscribe it to `BILLING.SUBSCRIPTION.ACTIVATED`, `BILLING.SUBSCRIPTION.CANCELLED`, `BILLING.SUBSCRIPTION.SUSPENDED`, `BILLING.SUBSCRIPTION.EXPIRED`, and `BILLING.SUBSCRIPTION.UPDATED`, and set its ID as `PAYPAL_WEBHOOK_ID`.
 4. Set `APP_BASE_URL` to the frontend's public URL and configure `CONTRACTGUARD_CORS_ORIGINS` for that exact origin.
 5. Test signup, checkout, renewal, and cancellation using sandbox accounts before launch. For live payments, use live PayPal app credentials and live plan and webhook IDs, set `PAYPAL_MODE=live`, enable HTTPS, and set `SESSION_COOKIE_SECURE=true`.

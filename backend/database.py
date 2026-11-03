@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Literal
 
 from fastapi import HTTPException
-from sqlalchemy import DateTime, ForeignKey, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import (
@@ -114,6 +114,18 @@ async def initialize_database() -> None:
     _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
     async with _engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
+        await connection.execute(
+            text(
+                "ALTER TABLE subscriptions "
+                "ADD COLUMN IF NOT EXISTS approval_url VARCHAR(2048)"
+            )
+        )
+        await connection.execute(
+            text(
+                "ALTER TABLE subscriptions "
+                "ADD COLUMN IF NOT EXISTS last_webhook_event_time TIMESTAMP WITH TIME ZONE"
+            )
+        )
 
 
 async def close_database() -> None:

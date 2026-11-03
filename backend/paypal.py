@@ -14,6 +14,39 @@ class PayPalError(RuntimeError):
     pass
 
 
+def _http_error_message(response: httpx.Response) -> str:
+    message = f"PayPal API request failed (HTTP {response.status_code})"
+    try:
+        payload = response.json()
+    except ValueError:
+        return f"{message}."
+    if not isinstance(payload, dict):
+        return f"{message}."
+
+    summary = [
+        value
+        for value in (payload.get("name"), payload.get("message"))
+        if isinstance(value, str) and value
+    ]
+    details = payload.get("details")
+    if isinstance(details, list):
+        for detail in details:
+            if not isinstance(detail, dict):
+                continue
+            fields = [
+                f"{key}: {detail[key]}"
+                for key in ("field", "issue", "description")
+                if isinstance(detail.get(key), str) and detail[key]
+            ]
+            if fields:
+                summary.append(", ".join(fields))
+
+    debug_id = payload.get("debug_id")
+    if isinstance(debug_id, str) and debug_id:
+        summary.append(f"debug ID: {debug_id}")
+    return f"{message}: {'; '.join(summary)}." if summary else f"{message}."
+
+
 def _configuration() -> tuple[str, str, str, str]:
     client_id = (os.getenv("PAYPAL_CLIENT_ID") or "").strip()
     client_secret = (os.getenv("PAYPAL_CLIENT_SECRET") or "").strip()
@@ -61,7 +94,7 @@ async def _request(
             )
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
-            raise PayPalError(f"PayPal API request failed (HTTP {exc.response.status_code}).") from exc
+            raise PayPalError(_http_error_message(exc.response)) from exc
         except httpx.HTTPError as exc:
             raise PayPalError("Could not connect to PayPal.") from exc
 
@@ -98,6 +131,81 @@ async def create_subscription(
             },
         },
     )
+
+
+async def create_product() -> dict[str, Any]:
+    result = await _request(
+        "POST",
+        "/v1/catalogs/products",
+        body={
+            "name": "Contract Analyst",
+            "description": "Contract analysis subscription plans.",
+            "type": "SERVICE",
+            "category": "SOFTWARE",
+        },
+    )
+    if not isinstance(result.get("id"), str) or not result["id"]:
+        raise PayPalError("PayPal did not return a product ID.")
+    return result
+
+
+async def create_monthly_plan(
+    product_id: str,
+    name: str,
+    description: str,
+    monthly_price: str,
+) -> str:
+    try:
+        result = await _request(
+            "POST",
+            "/v1/billing/plans",
+            body={
+                "product_id": product_id,
+                "name": name,
+                "description": description,
+                "billing_cycles": [
+                    {
+                        "frequency": {"interval_unit": "MONTH", "interval_count": 1},
+                        "tenure_type": "REGULAR",
+                        "sequence": 1,
+                        "total_cycles": 0,
+                        "pricing_scheme": {
+                            "fixed_price": {
+                                "value": monthly_price,
+                                "currency_code": "USD",
+                            },
+                        },
+                    },
+                ],
+                "payment_preferences": {
+                    "auto_bill_outstanding": True,
+                    "setup_fee_failure_action": "CONTINUE",
+                    "payment_failure_threshold": 3,
+                },
+            },
+        )
+    except PayPalError as exc:
+        raise PayPalError(f"Could not create the '{name}' billing plan: {exc}") from exc
+    plan_id = result.get("id")
+    if not isinstance(plan_id, str) or not plan_id:
+        raise PayPalError(f"PayPal did not return a plan ID for {name}.")
+
+    status = result.get("status")
+    if status == "ACTIVE":
+        return plan_id
+    if status not in {"CREATED", "INACTIVE"}:
+        raise PayPalError(
+            f"PayPal created the '{name}' billing plan {plan_id} with unexpected status "
+            f"{status!r}; expected ACTIVE, CREATED, or INACTIVE."
+        )
+
+    try:
+        await _request("POST", f"/v1/billing/plans/{plan_id}/activate")
+    except PayPalError as exc:
+        raise PayPalError(
+            f"Could not activate the '{name}' billing plan {plan_id}: {exc}"
+        ) from exc
+    return plan_id
 
 
 async def get_subscription(subscription_id: str) -> dict[str, Any]:

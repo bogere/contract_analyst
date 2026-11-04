@@ -8,7 +8,7 @@ import os
 import tempfile
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
@@ -17,7 +17,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-from openai import OpenAIError
+from openai import AsyncOpenAI, OpenAIError
 from pydantic import BaseModel, EmailStr, Field, SecretStr, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -204,6 +204,56 @@ class BillingResponse(BaseModel):
     next_billing_time: datetime | None
     paypal_enabled: bool
     plans: list[BillingPlan]
+
+
+class PaymentsPlanSummary(BaseModel):
+    plan_name: str
+    subscriber_count: int
+    active_paid_subscribers: int
+    monthly_price: int
+    estimated_mrr: int
+
+
+class PaymentsRenewalSummary(BaseModel):
+    renewal_date: str
+    plan_name: str
+    renewal_count: int
+
+
+class PaymentsDashboardResponse(BaseModel):
+    snapshot_at: datetime
+    accounts: int
+    paid_active_subscribers: int
+    estimated_mrr: int
+    upcoming_renewal_count: int
+    plans: list[PaymentsPlanSummary]
+    upcoming_renewals: list[PaymentsRenewalSummary]
+
+
+class PaymentsAiMessage(BaseModel):
+    role: Literal["system", "user", "assistant", "tool"]
+    content: str | None = Field(default=None, max_length=50_000)
+    name: str | None = Field(default=None, max_length=128)
+    tool_call_id: str | None = Field(default=None, max_length=128)
+    tool_calls: list[dict[str, object]] | None = Field(default=None, max_length=20)
+
+
+class PaymentsAiToolFunction(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    description: str = Field(max_length=2_000)
+    parameters: dict[str, object]
+
+
+class PaymentsAiTool(BaseModel):
+    type: Literal["function"]
+    function: PaymentsAiToolFunction
+
+
+class PaymentsAiRequest(BaseModel):
+    messages: list[PaymentsAiMessage] = Field(min_length=1, max_length=100)
+    tools: list[PaymentsAiTool] | None = Field(default=None, max_length=40)
+    tool_choice: Literal["auto", "none", "required"] | dict[str, object] | None = None
+    response_format: dict[str, object] | None = None
 
 
 class CheckoutRequest(BaseModel):
@@ -444,6 +494,154 @@ async def list_users(
         )
         for user in users
     ]
+
+
+@app.get("/api/admin/payments/analytics", response_model=PaymentsDashboardResponse)
+async def payments_analytics(
+    _: AdminUser,
+    session: DatabaseSession,
+) -> PaymentsDashboardResponse:
+    account_count = int(await session.scalar(select(func.count(User.id))) or 0)
+    active_subscriptions = await session.scalars(
+        select(Subscription)
+        .where(Subscription.status == "ACTIVE")
+        .order_by(Subscription.created_at.desc())
+    )
+
+    active_by_plan = {"pro": 0, "business": 0}
+    seen_user_ids: set[uuid.UUID] = set()
+    renewal_counts: dict[tuple[str, str], int] = {}
+    snapshot_at = datetime.now(timezone.utc)
+    renewal_cutoff = snapshot_at + timedelta(days=30)
+
+    for subscription in active_subscriptions:
+        if subscription.user_id in seen_user_ids:
+            continue
+        seen_user_ids.add(subscription.user_id)
+        if subscription.plan_key not in PLAN_DEFINITIONS:
+            raise HTTPException(status_code=500, detail="A subscription has an unsupported plan.")
+        if subscription.plan_key not in active_by_plan:
+            continue
+        active_by_plan[subscription.plan_key] += 1
+
+        next_billing_time = subscription.next_billing_time
+        if next_billing_time is None:
+            continue
+        if next_billing_time.tzinfo is None:
+            next_billing_time = next_billing_time.replace(tzinfo=timezone.utc)
+        else:
+            next_billing_time = next_billing_time.astimezone(timezone.utc)
+        if snapshot_at <= next_billing_time <= renewal_cutoff:
+            key = (next_billing_time.date().isoformat(), subscription.plan_key)
+            renewal_counts[key] = renewal_counts.get(key, 0) + 1
+
+    paid_active_subscribers = sum(active_by_plan.values())
+    plan_summaries = [
+        PaymentsPlanSummary(
+            plan_name=str(definition["name"]),
+            subscriber_count=(
+                max(0, account_count - paid_active_subscribers)
+                if key == "free"
+                else active_by_plan[key]
+            ),
+            active_paid_subscribers=active_by_plan.get(key, 0),
+            monthly_price=int(str(definition.get("monthly_price", "0")).split(".")[0]),
+            estimated_mrr=(
+                active_by_plan.get(key, 0)
+                * int(str(definition.get("monthly_price", "0")).split(".")[0])
+            ),
+        )
+        for key, definition in PLAN_DEFINITIONS.items()
+    ]
+    upcoming_renewals = [
+        PaymentsRenewalSummary(
+            renewal_date=renewal_date,
+            plan_name=str(PLAN_DEFINITIONS[plan_key]["name"]),
+            renewal_count=count,
+        )
+        for (renewal_date, plan_key), count in sorted(renewal_counts.items())
+    ]
+    return PaymentsDashboardResponse(
+        snapshot_at=snapshot_at,
+        accounts=account_count,
+        paid_active_subscribers=paid_active_subscribers,
+        estimated_mrr=sum(plan.estimated_mrr for plan in plan_summaries),
+        upcoming_renewal_count=sum(renewal.renewal_count for renewal in upcoming_renewals),
+        plans=plan_summaries,
+        upcoming_renewals=upcoming_renewals,
+    )
+
+
+@app.post(
+    "/api/admin/payments/assistant",
+    dependencies=[Depends(require_trusted_origin)],
+)
+async def payments_assistant(
+    request: PaymentsAiRequest,
+    _: AdminUser,
+    session: DatabaseSession,
+) -> dict[str, object]:
+    settings = await session.get(WorkspaceSettings, "global")
+    api_key = (
+        _decrypt_api_key(settings.encrypted_api_key)
+        if settings is not None and settings.encrypted_api_key
+        else None
+    )
+    if not api_key:
+        api_key = next(
+            (
+                value
+                for name in ("OPENAI_API_KEY", "OPENROUTER_API_KEY")
+                if (value := (os.getenv(name) or "").strip())
+            ),
+            None,
+        )
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Configure an AI provider key in admin AI settings or the backend environment.",
+        )
+
+    try:
+        async with AsyncOpenAI(
+            api_key=api_key,
+            base_url=(
+                settings.base_url
+                if settings is not None and settings.base_url
+                else (os.getenv("OPENAI_BASE_URL") or "").strip() or None
+            ),
+        ) as client:
+            completion = await client.chat.completions.create(
+                model=settings.model if settings is not None and settings.model else DEFAULT_MODEL,
+                messages=[message.model_dump(exclude_none=True) for message in request.messages],
+                tools=[tool.model_dump() for tool in request.tools] if request.tools else None,
+                tool_choice=request.tool_choice,
+                response_format=request.response_format,
+            )
+    except OpenAIError as exc:
+        raise HTTPException(status_code=502, detail=f"The configured AI provider failed: {exc}") from exc
+
+    if not completion.choices:
+        raise HTTPException(status_code=502, detail="The configured AI provider returned no response.")
+    message = completion.choices[0].message
+    return {
+        "id": completion.id,
+        "model": completion.model,
+        "message": {
+            "content": message.content,
+            "tool_calls": [
+                {
+                    "id": tool_call.id,
+                    "type": "function",
+                    "function": {
+                        "name": tool_call.function.name,
+                        "arguments": tool_call.function.arguments,
+                    },
+                }
+                for tool_call in message.tool_calls or []
+            ],
+        },
+    }
 
 
 @app.post(

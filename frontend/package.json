@@ -10,9 +10,11 @@
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.4",
-    "vite": "^6.0.7",
+    "ag-studio": "^3.1.0",
+    "ag-studio-react": "^3.1.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "vite": "^6.0.7"
   },
   "devDependencies": {
     "@types/react": "^18.3.18",

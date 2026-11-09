@@ -226,11 +226,12 @@ export default function PaymentsDashboard() {
     };
   }, [analytics]);
 
-  const ai = useMemo<AgAiHarnessSetup>(() => {
-    const adapter = createPaymentsAiAdapter(API_URL);
+  const ai = useMemo<AgAiHarnessSetup | undefined>(() => {
+    if (!analytics) return undefined;
+    const adapter = createPaymentsAiAdapter(API_URL, analytics);
     // AG Studio 3.1 types this callback with the core API, but createAiHarness requires its full UI API.
     return ({ api }) => createAiHarness(api as AgStudioApi, { adapter, promptStarters });
-  }, []);
+  }, [analytics]);
 
   return (
     <section className="payments-page">

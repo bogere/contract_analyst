@@ -29,6 +29,26 @@ type AssistantReply = {
   };
 };
 
+type PaymentsAnalyticsContext = {
+  snapshot_at: string;
+  accounts: number;
+  paid_active_subscribers: number;
+  estimated_mrr: number;
+  upcoming_renewal_count: number;
+  plans: Array<{
+    plan_name: string;
+    subscriber_count: number;
+    active_paid_subscribers: number;
+    monthly_price: number;
+    estimated_mrr: number;
+  }>;
+  upcoming_renewals: Array<{
+    renewal_date: string;
+    plan_name: string;
+    renewal_count: number;
+  }>;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -93,6 +113,38 @@ function toResponseFormat(request: AgLlmRequest): Record<string, unknown> | unde
   };
 }
 
+function paymentsAnalyticsInstructions(analytics: PaymentsAnalyticsContext): string {
+  const planSummary = analytics.plans
+    .map((plan) =>
+      `${plan.plan_name}: ${plan.subscriber_count} accounts, `
+      + `${plan.active_paid_subscribers} active paid subscribers, `
+      + `estimated MRR $${plan.estimated_mrr} at $${plan.monthly_price}/month`)
+    .join("\n");
+  const renewalSummary = analytics.upcoming_renewals.length
+    ? analytics.upcoming_renewals
+      .map((renewal) =>
+        `${renewal.renewal_date}: ${renewal.renewal_count} ${renewal.plan_name} renewals`)
+      .join("\n")
+    : "No scheduled renewals are recorded in the next 30 days.";
+
+  return [
+    "You are the Contract Analyst payments analytics assistant.",
+    "Use the verified aggregate snapshot below to answer questions about current subscribers, plans, estimated MRR, and upcoming renewals.",
+    "Do not claim these figures are unavailable. For requests to create or change dashboard widgets, use the AG Studio tools provided to you.",
+    "Estimated MRR is active paid subscribers multiplied by configured monthly plan prices; it is not collected cash.",
+    "Only current aggregate data is available. Do not invent transaction totals, refunds, payment failures, customer identities, or historical churn.",
+    `Snapshot: ${new Date(analytics.snapshot_at).toLocaleString()}.`,
+    `Workspace accounts: ${analytics.accounts}.`,
+    `Active paid subscribers: ${analytics.paid_active_subscribers}.`,
+    `Estimated MRR: $${analytics.estimated_mrr}.`,
+    `Upcoming renewals in the next 30 days: ${analytics.upcoming_renewal_count}.`,
+    "Plan summary:",
+    planSummary,
+    "Scheduled renewals:",
+    renewalSummary,
+  ].join("\n");
+}
+
 function parseAssistantReply(value: unknown): AssistantReply {
   if (!isRecord(value) || typeof value.id !== "string" || typeof value.model !== "string") {
     throw new Error("The payments assistant returned an invalid response.");
@@ -127,15 +179,17 @@ function parseAssistantReply(value: unknown): AssistantReply {
 async function requestAssistant(
   endpoint: string,
   request: AgLlmRequest,
+  analytics: PaymentsAnalyticsContext,
   signal?: AbortSignal,
 ): Promise<AssistantReply> {
+  const context = paymentsAnalyticsInstructions(analytics);
   const response = await fetch(`${endpoint}/api/admin/payments/assistant`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     signal,
     body: JSON.stringify({
-      messages: toChatMessages(request.input, request.instructions),
+      messages: toChatMessages(request.input, [request.instructions, context].filter(Boolean).join("\n\n")),
       tools: request.tools?.map((tool) => ({
         type: "function",
         function: {
@@ -162,10 +216,13 @@ async function requestAssistant(
   return parseAssistantReply(body);
 }
 
-export function createPaymentsAiAdapter(endpoint: string): AgLlmAdapter {
+export function createPaymentsAiAdapter(
+  endpoint: string,
+  analytics: PaymentsAnalyticsContext,
+): AgLlmAdapter {
   return {
     executeTurn(request, options) {
-      const reply = requestAssistant(endpoint, request, options?.signal);
+      const reply = requestAssistant(endpoint, request, analytics, options?.signal);
       const stream = (async function* () {
         try {
           const result = await reply;

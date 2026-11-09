@@ -9,6 +9,10 @@ The application consists of a React and TypeScript frontend and a FastAPI backen
 ## Why Contract Analyst?
 
 Every year, millions of people sign contracts they don't fully understand — apartment leases with hidden penalties, employment agreements with overly broad non-competes, and NDAs that silently strip away their rights. Hiring a lawyer can cost hundreds of dollars an hour, so many people sign and hope for the best.
+However ai contract guard helps you to resolve all those contract review challenges
+- Risk Identification: Automatically flags dangerous or unusual clauses—such as aggressive auto-renewals, steep liability limits, heavy penalties, or non-standard termination rules
+- Massive Time Savings: Cuts routine first-pass review time significantly (often by 40% to 70%), turning hours of manual reading into minutes.
+- Cost Efficiency: Lowers the cost per contract review and frees up internal legal counsel to focus on high-value strategy instead of repetitive redlining
 
 **Contract Analyst** makes ContractGuard's contract review available through a web app. Upload a contract to get potential problems explained in plain language, along with suggestions for what to negotiate, a fairness score, and jurisdiction-aware statute checks. Accounts and private report history make it easier to review your contracts over time, while an administrator can manage shared AI settings and team access.
 
@@ -20,6 +24,7 @@ Every year, millions of people sign contracts they don't fully understand — ap
 - Save and revisit your analysis reports. Reports are private to the account that created them.
 - Choose a monthly Free, Pro, or Business analysis plan and subscribe or cancel through PayPal.
 - Use the admin workspace to manage accounts and configure shared AI provider, model, language, and jurisdiction settings.
+- Use an administrator-only AG Studio payments dashboard to explore subscription aggregates and create analytics widgets in natural language.
 - Use Tesseract OCR for scanned PDFs and image uploads.
 
 For the ContractGuard library's CLI and Python API, see the [library usage guide](docs/CONTRACTGUARD.md).
@@ -154,6 +159,23 @@ To enable paid plans:
 5. Test signup, checkout, renewal, and cancellation using sandbox accounts before launch. For live payments, use live PayPal app credentials and live plan and webhook IDs, set `PAYPAL_MODE=live`, enable HTTPS, and set `SESSION_COOKIE_SECURE=true`.
 
 The backend checks that configured PayPal plans are active and charge the expected monthly USD price before starting checkout. When PayPal settings or plan IDs are missing, paid plans remain unavailable; the Free tier continues to work.
+
+### Recommended AG Studio payments dashboard
+
+For Contract Analyst, start with a **natural-language finance agent** that helps the administrator explore subscription health and assemble AG Grid widgets. This fits the product's recurring Free, Pro, and Business plans better than transaction anomaly alerts: the app currently stores each subscription's plan, status, creation/update times, and next billing date, but does not keep a PayPal transaction ledger or payment-failure/refund history.
+
+Useful initial widgets and questions include:
+
+- Active paid subscribers and subscriber counts by plan.
+- Estimated monthly recurring revenue (MRR), calculated from active paid plan counts and configured monthly prices; label it as an estimate, not collected cash.
+- Upcoming renewals based on stored next-billing dates.
+- Questions such as "Show active subscribers by plan" or "Estimate monthly recurring revenue by plan."
+
+Do not present transaction revenue, refunds, payment failures, customer segments, or historical churn trends as available until the application stores the corresponding PayPal transaction or event history. Anomaly alerts for failed payments or refund spikes can be added after that data is ingested and retained.
+
+The Payments analytics page is available in the admin workspace. Both its data API and AI proxy require the existing administrator check (`ADMIN_EMAIL`); hiding a navigation item is not access control. AG Studio receives only aggregate plan counts, estimated monthly recurring revenue, and upcoming renewal counts—no emails, subscription IDs, or contract contents. The assistant uses the configured workspace AI provider through an administrator-protected backend proxy, keeping provider keys on the server; AG Studio's license key does not configure this provider. Current aggregate figures are also supplied to the assistant as context so it can summarize them directly, while AG Studio tools remain available for widget creation and dashboard edits. Set `VITE_AG_STUDIO_LICENSE_KEY` in `frontend/.env.local` to your AG Studio trial license key, then restart the frontend development server. Configure an AI provider key and model separately in admin AI settings or the backend environment.
+
+MRR is an estimate based on active paid subscribers and configured monthly prices, not collected cash. The app does not currently retain PayPal transaction, refund, failed-payment, or historical churn data, so the dashboard does not present those metrics.
 
 The admin workspace can override the model, provider URL and key, language, and jurisdiction for all users. Admin-saved provider keys are encrypted using a key derived from `AUTH_SECRET_KEY`; changing that secret means saved keys must be entered again. Leave workspace provider overrides blank to use backend environment settings.
 

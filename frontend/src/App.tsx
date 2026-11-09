@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from "react";
 import type { AdminSettings, AdminUserSummary, AnalysisResult, BillingInfo, Issue, ReportSummary, ResultTab, SavedReport, SessionUser } from "./types";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const PaymentsDashboard = lazy(() => import("./PaymentsDashboard"));
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const IDLE_TIMEOUT_MS = 15 * 60 * 1000;
 const ACCEPTED = ".pdf,.docx,.txt,.md,.rtf,.bmp,.jpg,.jpeg,.png,.tif,.tiff,.webp";
@@ -29,7 +30,7 @@ function App() {
   const [reports, setReports] = useState<ReportSummary[]>([]);
   const [reportsLoading, setReportsLoading] = useState(false);
   const [activeReportId, setActiveReportId] = useState<string | null>(null);
-  const [activeView, setActiveView] = useState<"dashboard" | "all-contracts" | "billing" | "settings" | "users">("dashboard");
+  const [activeView, setActiveView] = useState<"dashboard" | "all-contracts" | "billing" | "payments" | "settings" | "users">("dashboard");
   const [historyError, setHistoryError] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -543,6 +544,14 @@ function App() {
               <>
                 <div className="sidebar-section-heading admin-sidebar-heading"><span>ADMIN WORKSPACE</span></div>
                 <button
+                  className={`sidebar-nav-button${activeView === "payments" ? " active" : ""}`}
+                  type="button"
+                  onClick={() => setActiveView("payments")}
+                  aria-current={activeView === "payments" ? "page" : undefined}
+                >
+                  <span aria-hidden="true">$</span> Payments analytics
+                </button>
+                <button
                   className={`sidebar-nav-button${activeView === "users" ? " active" : ""}`}
                   type="button"
                   onClick={() => setActiveView("users")}
@@ -627,6 +636,10 @@ function App() {
                   )}
                 </div>
               </section>
+            ) : activeView === "payments" && user.is_admin ? (
+              <Suspense fallback={<div className="panel payments-loading">Loading AG Studio…</div>}>
+                <PaymentsDashboard />
+              </Suspense>
             ) : activeView === "billing" ? (
               <section className="billing-page">
                 <div className="page-heading">
